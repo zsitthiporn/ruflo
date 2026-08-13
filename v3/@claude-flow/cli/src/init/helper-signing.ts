@@ -21,6 +21,14 @@ import { createHash, verify as edVerify } from 'crypto';
  * $RUFLO_HELPERS_SIGNING_KEY (default path `~/.ruflo/helpers-signing.key`).
  * Rotating the key = replace this constant + re-sign.
  *
+ * ROTATED TWICE on 2026-08-14. The first fork-owned key was generated, used to
+ * sign, and then lost the same day: the private half sat at
+ * `~/.ruflo/helpers-signing.key`, and that directory was swept during a cleanup
+ * of ruflo artifacts from the user profile — understandably, since `~/.ruflo`
+ * looks exactly like tool litter. It is not; it is the one directory there that
+ * cannot be regenerated. `~/.ruflo/DO-NOT-DELETE.md` now says so on disk, which
+ * is the only place a person doing that cleanup would actually read it.
+ *
  * ROTATED 2026-08-14 — FORK OWNERSHIP. This fork previously carried upstream's
  * public key, which meant upstream-signed helpers verified as legitimate here
  * and could overwrite hand-maintained ones. The private half of that pair is
@@ -38,7 +46,7 @@ import { createHash, verify as edVerify } from 'crypto';
  * Kept here as history — that key is not ours either.
  */
 export const RUFLO_HELPERS_PUBKEY = `-----BEGIN PUBLIC KEY-----
-MCowBQYDK2VwAyEAUFffAZrLNl/wde2mwvjf15RtoXsoOISrTXQVNp+5hi0=
+MCowBQYDK2VwAyEARue6JDRW2NyhElZC3WL4Ep2iez4tgjI1yOgzZWHsnio=
 -----END PUBLIC KEY-----`;
 
 export const HELPERS_MANIFEST_FILE = 'helpers.manifest.json';
