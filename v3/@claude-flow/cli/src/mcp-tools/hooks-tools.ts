@@ -2249,11 +2249,11 @@ export const hooksSessionStart: MCPTool = {
 // Session end hook - stops daemon
 export const hooksSessionEnd: MCPTool = {
   name: 'hooks_session-end',
-  description: 'End current session, stop daemon, and record a session summary in the memory store — despite the returned `statePath`, no session-state file is written to disk, and nothing later reads that path (hooks_session-restore rebuilds from the memory store, not from statePath). Use the `session_save` tool to actually persist session state to a file. Otherwise use when native Bash hooks (via Claude Code\'s settings.json) are wrong because you need Ruflo-side state — pattern persistence, neural training signals, model-routing learning, cost tracking, audit chain. For one-off shell commands, plain Bash hooks are fine.',
+  description: 'End current session, stop daemon, and record a session summary in the memory store (hooks_session-restore rebuilds from the memory store). Use the `session_save` tool if you need an actual state file on disk. Otherwise use when native Bash hooks (via Claude Code\'s settings.json) are wrong because you need Ruflo-side state — pattern persistence, neural training signals, model-routing learning, cost tracking, audit chain. For one-off shell commands, plain Bash hooks are fine.',
   inputSchema: {
     type: 'object',
     properties: {
-      saveState: { type: 'boolean', description: 'Save session state' },
+      saveState: { type: 'boolean', description: 'Include the session summary in the memory-store write (does not write a file; see session_save for that)' },
       exportMetrics: { type: 'boolean', description: 'Export session metrics' },
       stopDaemon: { type: 'boolean', description: 'Stop worker daemon (default: true)' },
     },
@@ -2328,12 +2328,6 @@ export const hooksSessionEnd: MCPTool = {
     return {
       sessionId,
       duration: 3600000, // 1 hour in ms
-      // NOTE: this is a computed path string, not confirmation of a write.
-      // No code anywhere writes to `.claude/sessions/<id>.json`, and
-      // hooks_session-restore never reads it either — real persistence for
-      // this call happens via bridgeSessionEnd() into the memory store
-      // above. Use the `session_save` tool for an actual state file.
-      statePath: saveState ? `.claude/sessions/${sessionId}.json` : undefined,
       daemon: { stopped: daemonStopped },
       sessionPersistence: sessionPersistence || { controller: 'none', persisted: false },
       summary: {
@@ -5018,33 +5012,33 @@ export const hooksWorkerCancel: MCPTool = {
   },
 };
 
-// #1916: the `ruflo hooks teammate-idle` / `ruflo hooks task-completed` CLI
-// subcommands (Agent Teams hooks) referenced unregistered tools. Minimal
-// acknowledgement handlers with the shapes the CLI expects — auto-assignment
-// and pattern-learning are delegated to the task-queue consumer / intelligence
-// pipeline (a tracked #1916 follow-up).
+// Issue #6: this fork's doctrine has the lead route work explicitly (a
+// dispatch carries a ground-truth block and an ownership boundary that an
+// auto-assigned task would arrive without) — auto-assignment contradicts
+// that and will not be built. This hook is kept only as an honest
+// acknowledgement that a teammate went idle; it does not check a task list
+// or assign anything, and its schema no longer advertises that it does.
 export const hooksTeammateIdle: MCPTool = {
   name: 'hooks_teammate-idle',
-  description: 'Agent Teams hook — fired when a teammate agent finishes its turn; reports whether a pending task can be auto-assigned. Use when native Task is wrong because you have a persistent multi-agent team with a shared task list and want idle workers picked up automatically rather than re-spawning subagents. For a one-shot Task, native Task is fine. (Auto-assignment is delegated to the task-queue consumer — this acknowledges the event today.)',
+  description: 'Agent Teams hook — acknowledges that a teammate has gone idle. Does not check for or auto-assign pending work: this fork\'s lead routes tasks explicitly (issue #6), so there is nothing to assign here. Use only for lightweight idle-state logging; a persistent team\'s work assignment still goes through the lead.',
   category: 'hooks',
   inputSchema: {
     type: 'object',
     properties: {
       teammateId: { type: 'string', description: 'ID of the idle teammate' },
       teamName: { type: 'string', description: 'Team name' },
-      autoAssign: { type: 'boolean', description: 'Auto-assign a pending task if available' },
-      checkTaskList: { type: 'boolean', description: 'Consult the shared task list' },
       timestamp: { type: 'number', description: 'Event timestamp (ms)' },
     },
   },
   handler: async (input) => {
     const teammateId = String(input.teammateId ?? '');
+    const teamName = input.teamName ? String(input.teamName) : undefined;
     return {
       success: true,
       teammateId,
-      action: 'waiting' as const,
-      pendingTasks: 0,
-      message: 'teammate-idle acknowledged; auto-assignment requires the task-queue consumer (#1916 follow-up)',
+      ...(teamName ? { teamName } : {}),
+      acknowledged: true,
+      message: 'Teammate idle acknowledged. No auto-assignment: the lead routes work explicitly (issue #6).',
     };
   },
 };

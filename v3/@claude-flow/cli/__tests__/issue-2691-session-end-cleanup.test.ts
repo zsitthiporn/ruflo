@@ -26,6 +26,8 @@ describe('hooks session-end native resource cleanup (#2691)', () => {
     expect(result).toMatchObject({
       sessionPersistence: { controller: 'test', persisted: true },
     });
+    // Issue #15: statePath pointed at a file nothing wrote or read; removed.
+    expect(result).not.toHaveProperty('statePath');
   });
 
   it('still shuts down a partially initialized bridge when persistence fails', async () => {

@@ -94,7 +94,12 @@ export function generateSettings(options: InitOptions): object {
       taskListEnabled: true,
       mailboxEnabled: true,
       coordination: {
-        autoAssignOnIdle: true,       // Auto-assign pending tasks when teammate is idle
+        // #15 — `autoAssignOnIdle` removed. Auto-assignment is not unimplemented,
+        // it is declined: the lead routes work, and a dispatch carries a
+        // ground-truth block and an ownership boundary that an auto-assigned
+        // task would arrive without (decision recorded in #6). Emitting config
+        // for a schema that no longer accepts it is the same dishonest surface
+        // this pass removed from the hook itself.
         trainPatternsOnComplete: true, // Train neural patterns when tasks complete
         notifyLeadOnComplete: true,   // Notify team lead when tasks complete
         sharedMemoryNamespace: 'agent-teams', // Memory namespace for team coordination
@@ -102,8 +107,6 @@ export function generateSettings(options: InitOptions): object {
       hooks: {
         teammateIdle: {
           enabled: true,
-          autoAssign: true,
-          checkTaskList: true,
         },
         taskCompleted: {
           enabled: true,

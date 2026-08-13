@@ -35,7 +35,7 @@ only by reference. Verified against `@claude-flow/cli` source on this branch:
 | Tool / hook | Advertised | Actual |
 |-------------|------------|--------|
 | `task_create` / `task_status` / `task_list` | persistence in `.swarm/memory.db` | writes `<cwd>/.claude-flow/tasks/store.json`, plain JSON, **no write locking** — so only the lead writes the board, one lead session per workspace |
-| `hooks_teammate-idle` | auto-assigns work to an idle teammate | stub returning hardcoded `action: 'waiting'`, `pendingTasks: 0` (#1916 follow-up) |
+| `hooks_teammate-idle` | acknowledges an idle teammate | that, and only that (#15). The auto-assignment it used to advertise is **declined, not pending** — the lead routes work (#6) |
 | `hooks_task-completed` | notifies the lead | `leadNotified` echoes the input flag; no message is delivered. `trainPatterns: true` learning is real |
 | `hooks_session-end` | persists session state, returns `statePath` | writes no session state file. The real path is the `session_save` tool |
 | `worker-dispatch` | dispatches a background worker | needs a running daemon; with `background: false` it returns `synthetic-completed` **without executing anything**. The daemon-less one-shot is the CLI `daemon trigger -w <worker>` |

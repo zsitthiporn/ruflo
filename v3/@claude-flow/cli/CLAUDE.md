@@ -34,7 +34,7 @@ Verified against this package's source on this branch:
 | Surface | Advertised | Actual |
 |---------|------------|--------|
 | Task tools (`task_create` / `task_status` / `task_list`) | persistence in `.swarm/memory.db` | writes `<cwd>/.claude-flow/tasks/store.json`, plain JSON, **no write locking** — so only the lead writes the board, one lead session per workspace |
-| `hooks teammate-idle` | auto-assigns work to an idle teammate | stub returning hardcoded `action: 'waiting'`, `pendingTasks: 0` (#1916 follow-up) |
+| `hooks teammate-idle` | acknowledges an idle teammate | that, and only that (#15). The auto-assignment it used to advertise is **declined, not pending** — the lead routes work (#6) |
 | `hooks task-completed` | notifies the lead | `leadNotified` echoes the input flag; no message is delivered. `--train-patterns` learning is real |
 | `hooks session-end` | persists session state | writes no state file. The real path is the `session_save` tool |
 | MCP `worker-dispatch` | dispatches a background worker | needs a running daemon; with `background: false` it returns `synthetic-completed` **without executing anything**. The daemon-less one-shot is `daemon trigger -w <worker>` |

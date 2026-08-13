@@ -421,10 +421,32 @@ const statusCommand: Command = {
         startedAt?: string;
         completedAt?: string;
         result?: unknown;
-        error?: string;
+        // #14 — an `error` field used to be declared here and checked below
+        // under `status === 'failed'`. Removed: no code path ever produces
+        // it — TaskRecord (mcp-tools/task-tools.ts) has no `error` field,
+        // and task_update can set status to 'failed' without recording a
+        // reason. The branch was unreachable dead code, same class of issue
+        // #13 already removed `dependents`/`logs`/`metrics` for (nothing
+        // generates them). Making it reachable instead would mean adding an
+        // `error` field to TaskRecord and to task_update's schema/handler —
+        // a write-path/schema decision outside this fix's scope.
       }>('task_status', {
         taskId,
       });
+
+      // #14 — task_status's handler (mcp-tools/task-tools.ts) returns
+      // { status: 'not_found', ... } for an unknown ID rather than throwing,
+      // so this used to fall straight into the render path below and print
+      // a box full of "undefined" fields for a task that was never found —
+      // indistinguishable at a glance from a real, mostly-empty task. Treat
+      // it as the error it is.
+      if ((result as { status: string }).status === 'not_found') {
+        output.printError(`Task not found: ${taskId}`);
+        if (ctx.flags.format === 'json') {
+          output.printJson(result);
+        }
+        return { success: false, exitCode: 1, data: result };
+      }
 
       if (ctx.flags.format === 'json') {
         output.printJson(result);
@@ -478,12 +500,6 @@ const statusCommand: Command = {
           { event: 'Completed', time: result.completedAt ? new Date(result.completedAt).toLocaleString() : '-' }
         ]
       });
-
-      // Error if failed
-      if (result.status === 'failed' && result.error) {
-        output.writeln();
-        output.printError(`Error: ${result.error}`);
-      }
 
       return { success: true, data: result };
     } catch (error) {

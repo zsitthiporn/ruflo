@@ -42,6 +42,7 @@ import type { CommandContext } from '../src/types.js';
 const createCmd = taskCommand.subcommands!.find(c => c.name === 'create')!;
 const listCmd = taskCommand.subcommands!.find(c => c.name === 'list')!;
 const statusCmd = taskCommand.subcommands!.find(c => c.name === 'status')!;
+const retryCmd = taskCommand.subcommands!.find(c => c.name === 'retry')!;
 
 function baseCtx(): CommandContext {
   return { args: [], flags: { _: [] }, cwd: '/test', interactive: false };
@@ -160,5 +161,83 @@ describe('#12 — task CLI write path: fields collected by the CLI must survive 
 
     const createOptionNames = createCmd.options?.map(o => o.name) ?? [];
     expect(createOptionNames).not.toContain('timeout');
+  });
+
+  it('#14 — task retry carries over parentId and dependencies (same structural position)', async () => {
+    const created = await createCmd.action!({
+      ...baseCtx(),
+      flags: {
+        type: 'bug-fix', description: 'retry should keep my parent/deps', priority: 'normal',
+        parent: 'task-parent-1', dependencies: 'task-a, task-b', _: [],
+      },
+    });
+    const originalId = (created.data as { taskId: string }).taskId;
+
+    const retried = await retryCmd.action!({ ...baseCtx(), args: [originalId] });
+    expect(retried.success).toBe(true);
+    const newTaskId = (retried.data as { newTaskId: string }).newTaskId;
+
+    // 1. Storage: task_retry's handler (mcp-tools/task-tools.ts) must clone
+    //    parentId/dependencies onto the new record, not just type/priority/
+    //    assignedTo/tags as it did before #14.
+    const stored = readStore(root);
+    expect(stored.tasks[newTaskId].parentId).toBe('task-parent-1');
+    expect(stored.tasks[newTaskId].dependencies).toEqual(['task-a', 'task-b']);
+
+    // 2. task_retry's own response echoes both back (same pattern as
+    //    task_create's response).
+    expect((retried.data as { parentId?: string }).parentId).toBe('task-parent-1');
+    expect((retried.data as { dependencies?: string[] }).dependencies).toEqual(['task-a', 'task-b']);
+
+    // 3. task_status renders both for the new task too — #13 made
+    //    parentId/dependencies real, rendered fields, which is exactly why a
+    //    retry silently dropping them became a live, visible bug ("None")
+    //    instead of a harmless gap. Capture the actual rendered table text
+    //    (not just the .data payload) so this proves the display surface,
+    //    not only storage — beforeEach mocks stdout to discard by default,
+    //    so accumulate locally for this one call.
+    let rendered = '';
+    stdoutSpy.mockImplementation((chunk: unknown) => {
+      rendered += typeof chunk === 'string' ? chunk : String(chunk);
+      return true;
+    });
+    const status = await statusCmd.action!({ ...baseCtx(), args: [newTaskId] });
+    stdoutSpy.mockImplementation(() => true);
+
+    expect((status.data as { parentId?: string }).parentId).toBe('task-parent-1');
+    expect((status.data as { dependencies?: string[] }).dependencies).toEqual(['task-a', 'task-b']);
+    // The table renders "Property | Value" columns without a literal colon,
+    // so assert on the real values appearing (replacing what would render as
+    // "None" pre-fix) rather than a colon-joined string that the renderer
+    // never produces.
+    expect(rendered).toContain('task-parent-1');
+    expect(rendered).toContain('task-a, task-b');
+
+    // The original record is untouched (retry clones, it doesn't mutate).
+    expect(stored.tasks[originalId].parentId).toBe('task-parent-1');
+    expect(stored.tasks[originalId].dependencies).toEqual(['task-a', 'task-b']);
+  });
+
+  it('#14 — task retry does not copy metadata (creation-event provenance stays with the original)', async () => {
+    const created = await createCmd.action!({
+      ...baseCtx(),
+      flags: { type: 'bug-fix', description: 'retry should not inherit my metadata', priority: 'normal', _: [] },
+    });
+    const originalId = (created.data as { taskId: string }).taskId;
+
+    // The CLI always attaches { source: 'cli', createdBy: 'user' } on create
+    // (see the 'CLI-attached metadata survives to store.json' test above),
+    // so its absence on the retry is a meaningful, deliberate assertion —
+    // not a tautology from an empty field to begin with.
+    const preRetryStore = readStore(root);
+    expect(preRetryStore.tasks[originalId].metadata).toEqual({ source: 'cli', createdBy: 'user' });
+
+    const retried = await retryCmd.action!({ ...baseCtx(), args: [originalId] });
+    const newTaskId = (retried.data as { newTaskId: string }).newTaskId;
+
+    const stored = readStore(root);
+    expect(stored.tasks[newTaskId]).not.toHaveProperty('metadata');
+    // The original's own metadata must survive untouched.
+    expect(stored.tasks[originalId].metadata).toEqual({ source: 'cli', createdBy: 'user' });
   });
 });

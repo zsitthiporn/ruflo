@@ -2272,9 +2272,6 @@ const sessionEndCommand: Command = {
       const result = await callMCPTool<{
         sessionId: string;
         duration: number;
-        // Computed path string only — no file is actually written there;
-        // see the note in hooks_session-end's handler.
-        statePath?: string;
         summary: {
           tasksExecuted: number;
           tasksSucceeded: number;
@@ -2313,11 +2310,6 @@ const sessionEndCommand: Command = {
           { metric: 'Agents Spawned', value: result.summary.agentsSpawned }
         ]
       });
-
-      if (result.statePath) {
-        output.writeln();
-        output.writeln(output.dim(`Note: ${result.statePath} was not written to disk — no session-state file is saved. Use the 'session_save' tool to persist session state.`));
-      }
 
       return { success: true, data: result };
     } catch (error) {
@@ -5238,22 +5230,8 @@ const modelStatsCommand: Command = {
 // Teammate Idle command - Agent Teams integration
 const teammateIdleCommand: Command = {
   name: 'teammate-idle',
-  description: 'Acknowledge an idle teammate in Agent Teams — always reports the teammate as waiting (pendingTasks: 0); auto-assignment and lead notification are not yet implemented (tracked in #1916)',
+  description: 'Acknowledge an idle teammate in Agent Teams. Does not auto-assign work — this fork\'s lead routes tasks explicitly (issue #6), so there is no task-list check or assignment to report',
   options: [
-    {
-      name: 'auto-assign',
-      short: 'a',
-      description: 'Requests auto-assignment of a pending task, but the handler currently ignores this flag and always reports waiting (#1916 follow-up)',
-      type: 'boolean',
-      default: true
-    },
-    {
-      name: 'check-task-list',
-      short: 'c',
-      description: 'Requests a shared task-list check, but the handler currently ignores this flag and always reports waiting (#1916 follow-up)',
-      type: 'boolean',
-      default: true
-    },
     {
       name: 'teammate-id',
       short: 't',
@@ -5267,12 +5245,9 @@ const teammateIdleCommand: Command = {
     }
   ],
   examples: [
-    { command: 'claude-flow hooks teammate-idle --auto-assign true', description: 'Acknowledge idle teammate (flag currently ignored — always reports waiting)' },
-    { command: 'claude-flow hooks teammate-idle -t worker-1 --check-task-list', description: 'Check tasks for specific teammate' }
+    { command: 'claude-flow hooks teammate-idle -t worker-1', description: 'Acknowledge that worker-1 has gone idle' }
   ],
   action: async (ctx: CommandContext): Promise<CommandResult> => {
-    const autoAssign = ctx.flags.autoAssign !== false;
-    const checkTaskList = ctx.flags.checkTaskList !== false;
     const teammateId = ctx.flags.teammateId as string;
     const teamName = ctx.flags.teamName as string;
 
@@ -5284,17 +5259,10 @@ const teammateIdleCommand: Command = {
       const result = await callMCPTool<{
         success: boolean;
         teammateId: string;
-        action: 'assigned' | 'waiting' | 'notified';
-        taskAssigned?: {
-          taskId: string;
-          subject: string;
-          priority: string;
-        };
-        pendingTasks: number;
+        teamName?: string;
+        acknowledged: boolean;
         message: string;
       }>('hooks_teammate-idle', {
-        autoAssign,
-        checkTaskList,
         teammateId,
         teamName,
         timestamp: Date.now(),
@@ -5306,26 +5274,15 @@ const teammateIdleCommand: Command = {
       }
 
       output.writeln();
-      if (result.action === 'assigned' && result.taskAssigned) {
-        output.printSuccess(`Task assigned: ${result.taskAssigned.subject}`);
-        output.printList([
-          `Task ID: ${result.taskAssigned.taskId}`,
-          `Priority: ${result.taskAssigned.priority}`,
-          `Pending tasks remaining: ${result.pendingTasks}`
-        ]);
-      } else if (result.action === 'waiting') {
-        output.printInfo('No pending tasks available - teammate waiting for work');
-      } else {
-        output.printInfo(`Team lead notified: ${result.message}`);
-      }
+      output.printInfo(result.message);
 
       return { success: true, data: result };
     } catch (error) {
       // Graceful fallback - don't fail hard, just report
       if (ctx.flags.format === 'json') {
-        output.printJson({ success: true, action: 'waiting', message: 'Teammate idle - no MCP server' });
+        output.printJson({ success: true, acknowledged: true, message: 'Teammate idle - no MCP server' });
       } else {
-        output.printInfo('Teammate idle - awaiting task assignment');
+        output.printInfo('Teammate idle - acknowledged (no MCP server)');
       }
       return { success: true };
     }
@@ -5686,7 +5643,7 @@ export const hooksCommand: Command = {
       `${output.highlight('model-stats')}    - View model routing statistics`,
       '',
       output.bold('Agent Teams:'),
-      `${output.highlight('teammate-idle')}  - Acknowledge idle teammate (always reports waiting; auto-assign not yet implemented, #1916)`,
+      `${output.highlight('teammate-idle')}  - Acknowledge idle teammate (no auto-assign — the lead routes work explicitly, #6)`,
       `${output.highlight('task-completed')} - Handle task completion (train patterns)`
     ]);
     output.writeln();

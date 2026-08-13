@@ -173,7 +173,7 @@ the source on this branch:
 | Surface | What it advertises | What actually happens |
 |---------|--------------------|-----------------------|
 | Task tools (`task_create` / `task_status` / `task_list`) | persistence "in the `.swarm/memory.db`" (tool descriptions) | the handler writes `<cwd>/.claude-flow/tasks/store.json` — a plain JSON file, not that DB, and with **no write locking** |
-| `hooks teammate-idle` | "auto-assign tasks to an idle teammate" | stub — returns hardcoded `action: 'waiting'`, `pendingTasks: 0`. Auto-assignment is an open follow-up (#1916) |
+| `hooks teammate-idle` | acknowledges that a teammate went idle | that, and only that — reduced to an honest acknowledgement in #15. It used to advertise auto-assignment it never performed; **auto-assignment is declined, not pending** (#6), because the lead routes work and an auto-assigned task arrives without the ground-truth block and ownership boundary that make a dispatch safe |
 | `hooks task-completed` | "notify lead" | `leadNotified` echoes the input flag back; **no notification is delivered**. Its `trainPatterns: true` learning path is real |
 | `hooks session-end` | "persist state", returns a `statePath` | does not write a session state file. The real path is the `session_save` tool |
 | MCP `worker-dispatch` | dispatches a background worker | requires a running daemon. With `background: false` it returns `synthetic-completed` **without executing anything**. The only daemon-less one-shot is the CLI `daemon trigger -w <worker>`, which is lead-only |

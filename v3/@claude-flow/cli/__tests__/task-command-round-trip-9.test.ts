@@ -164,4 +164,35 @@ describe('#9 — task CLI read path against a store written by task create', () 
     expect(ids).toContain(targetId);
     expect(ids).not.toContain(otherId);
   });
+
+  it('#14 — task status on a missing task id is reported as an error, not rendered as a task box', async () => {
+    stdout = '';
+    let stderr = '';
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: unknown) => {
+      stderr += typeof chunk === 'string' ? chunk : String(chunk);
+      return true;
+    });
+
+    try {
+      const result = await statusCmd.action!({ ...baseCtx(), args: ['definitely-does-not-exist-xyz'] });
+
+      // task_status's handler (mcp-tools/task-tools.ts) returns
+      // { status: 'not_found', ... } rather than throwing, so the CLI must
+      // itself recognize it and fail — not just pass it through to the
+      // render path below, which used to print a box full of "undefined"
+      // fields indistinguishable from a real, mostly-empty task.
+      expect(result.success).toBe(false);
+      expect(result.exitCode).toBe(1);
+
+      // No task box was rendered — this is the pre-fix bug signature.
+      expect(stdout).not.toContain('Task: definitely-does-not-exist-xyz');
+      expect(stdout).not.toMatch(/Type:\s+undefined/);
+
+      // The failure is actually surfaced to the user (on stderr, where
+      // printError writes).
+      expect(stderr).toMatch(/not found/i);
+    } finally {
+      stderrSpy.mockRestore();
+    }
+  });
 });

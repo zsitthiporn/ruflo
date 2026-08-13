@@ -30,9 +30,9 @@ interface TaskRecord {
   // #12 — previously collected by the CLI (`--parent`, `--dependencies`) and
   // silently discarded because neither the schema nor storage accepted them.
   // Persisted now so `store.json` is the honest record of what was declared
-  // at creation. NOT surfaced by task_status (see the comment there) — that
-  // read-path question (build dependency-graph tracking vs. drop the dead
-  // CLI display surface) is issue #12 item 3, left for the lead.
+  // at creation. #13 then resolved the read-path question this comment used
+  // to defer: both are returned by task_status, while `dependents`, `logs`,
+  // and `metrics` were deleted because nothing in the package backs them.
   parentId?: string;
   dependencies?: string[];
   // CLI-attached provenance (e.g. { source: 'cli', createdBy: 'user' }).
@@ -526,7 +526,7 @@ export const taskTools: MCPTool[] = [
     // cloning its spec into a fresh pending task (the original is left intact
     // as history).
     name: 'task_retry',
-    description: 'Re-queue a failed/cancelled/completed task by cloning its spec into a fresh pending task (the original record is kept as history). Use when native TodoWrite is wrong because you need the original task\'s persisted spec (type, priority, assignees, tags) and a stable taskId chain across runs rather than hand-retyping a checklist item. For ad-hoc re-runs, native TodoWrite is fine.',
+    description: 'Re-queue a failed/cancelled/completed task by cloning its spec into a fresh pending task (the original record is kept as history). Carries over parentId and dependencies — the retry is the same unit of work re-queued, so its place in the hierarchy and what must finish before it starts are unchanged. Does NOT carry over metadata: that field records how the original was created (e.g. { source, createdBy }), a fact about that creation event, not this one; the retry\'s own lineage is recorded honestly via a retry-of:<taskId> tag instead. Use when native TodoWrite is wrong because you need the original task\'s persisted spec (type, priority, assignees, tags, parent, dependencies) and a stable taskId chain across runs rather than hand-retyping a checklist item. For ad-hoc re-runs, native TodoWrite is fine.',
     category: 'task',
     inputSchema: {
       type: 'object',
@@ -546,7 +546,7 @@ export const taskTools: MCPTool[] = [
       if (!original) return { success: false, taskId, error: 'Task not found' };
 
       const newTaskId = `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      store.tasks[newTaskId] = {
+      const retried: TaskRecord = {
         taskId: newTaskId,
         type: original.type,
         description: original.description,
@@ -558,7 +558,26 @@ export const taskTools: MCPTool[] = [
         createdAt: new Date().toISOString(),
         startedAt: null,
         completedAt: null,
+        // #14 — parentId/dependencies describe the task's *structural*
+        // position (which parent it belongs under, what must finish before
+        // it can start). A retry is the same unit of work re-queued, not a
+        // new one, so that position is unchanged — carry both over. Dropping
+        // them is exactly the bug this fix addresses: it silently detaches
+        // the retried task from its parent and loses its ordering
+        // constraints, and since #13 that loss is rendered as "None" instead
+        // of staying invisible.
+        ...(original.parentId ? { parentId: original.parentId } : {}),
+        ...(original.dependencies ? { dependencies: [...original.dependencies] } : {}),
+        // metadata is deliberately NOT copied. It records provenance about
+        // *how the original task was created* (e.g. { source: 'cli',
+        // createdBy: 'user' }) — a fact about that creation event, not this
+        // one. Copying it verbatim would misattribute the retry's own
+        // creation to whoever/whatever created the original. The retry's
+        // lineage back to the original is already recorded honestly via the
+        // 'retry-of:<taskId>' tag above, without conflating the two
+        // provenance concepts.
       };
+      store.tasks[newTaskId] = retried;
       saveTaskStore(store);
 
       return {
@@ -566,6 +585,8 @@ export const taskTools: MCPTool[] = [
         newTaskId,
         previousStatus: original.status,
         status: 'pending',
+        parentId: retried.parentId,
+        dependencies: retried.dependencies,
       };
     },
   },

@@ -499,13 +499,15 @@ function mergeSettingsForUpgrade(existing: Record<string, unknown>): Record<stri
       taskListEnabled: true,
       mailboxEnabled: true,
       coordination: {
-        autoAssignOnIdle: true,
+        // #15 — no `autoAssignOnIdle`: auto-assignment is declined, not pending
+        // (see #6). Config for a schema that no longer accepts it is the same
+        // dishonest surface this pass removed from the hook.
         trainPatternsOnComplete: true,
         notifyLeadOnComplete: true,
         sharedMemoryNamespace: 'agent-teams',
       },
       hooks: {
-        teammateIdle: { enabled: true, autoAssign: true, checkTaskList: true },
+        teammateIdle: { enabled: true },
         taskCompleted: { enabled: true, trainPatterns: true, notifyLead: true },
       },
     },
