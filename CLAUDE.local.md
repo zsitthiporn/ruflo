@@ -42,4 +42,9 @@ npx claude-flow@v3alpha hooks worker list
 
 4-step pipeline: RETRIEVE (HNSW) → JUDGE (verdicts) → DISTILL (LoRA) → CONSOLIDATE (EWC++)
 
-Components: SONA (<0.05ms), MoE (8 experts), HNSW (150x-12,500x), Flash Attention (2.49x-7.47x)
+Components (measured, not marketing — source of truth is `docs/reviews/intelligence-system-audit-2026-05-29.md`):
+
+- **SONA** — 0.0043 ms/adapt (target <0.05 ms met)
+- **MoE** — 8 experts; gate converges (confidence 0.13 → 0.88 after rewards)
+- **HNSW** — ~1.9x at N=20k, ~3.2x–4.7x at N=5k vs brute force, recall@10 ~0.99. Ties or loses below the crossover. The old "150x–12,500x" figure was brute-force fallback being compared against itself and has never been reproduced.
+- **Flash Attention** — integration available; speedup **not measured**. The old "2.49x–7.47x" was inherited from upstream marketing and dropped rather than repeated.
