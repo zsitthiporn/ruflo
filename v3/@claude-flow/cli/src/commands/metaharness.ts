@@ -41,6 +41,7 @@ import { existsSync, readFileSync } from 'fs';
 import { join, dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { runFlywheelWorker } from '../services/harness-flywheel-runtime.js';
+import { getProjectCwd } from '../mcp-tools/types.js';
 import {
   listFlywheelReceipts,
   promoteFlywheelCandidate,
@@ -95,7 +96,11 @@ async function dispatchFlywheel(
   positional: string[],
   flags: Record<string, unknown>,
 ): Promise<CommandResult> {
-  const projectRoot = resolve(String(flywheelFlag(flags, 'projectRoot', process.cwd())));
+  // #16 — resolve through getProjectCwd() so CLAUDE_FLOW_CWD governs here too.
+  // An explicit --project-root still wins; only the fallback changed. Before
+  // this, the CLI and mcp-tools/metaharness-tools.ts disagreed about where the
+  // project root is, which is the shape that makes this class of bug invisible.
+  const projectRoot = resolve(String(flywheelFlag(flags, 'projectRoot', getProjectCwd())));
   let data: unknown;
   if (!operation || operation === 'status') {
     data = {
