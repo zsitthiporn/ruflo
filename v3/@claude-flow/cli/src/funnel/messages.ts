@@ -106,92 +106,29 @@ export function isValidMessage(msg: unknown, now: Date = new Date()): msg is Fun
 }
 
 /**
- * Local promo/message content: cold-start seed (ADR-311 amendment
- * revisited, issue #2787).
+ * Local promo/message content pool — EMPTIED IN THIS FORK.
  *
- * The remote pool is authoritative — `eligibleMessagesFromPools` in
- * `rotation.ts` merges by id with remote winning — but on new installs
- * the remote fetch races the very first render and the promo row shows
- * NOTHING until the pool has been fetched at least once. The disclosure
- * gate can't unlock either, so several 20-second slots go by blank.
+ * Upstream this held a baked seed of sponsor-linked "educational" tips, a
+ * bootstrap disclosure, and a Cognitum promo, so the statusline promo row
+ * had content to show before the remote fetch landed. Every entry pointed at
+ * a sponsor domain.
  *
- * The fix is a small local seed of educational tips, one bootstrap
- * disclosure, and a single sponsor promo, all validating cleanly through
- * `isValidMessage` and using only URLs on the exact-host allowlist. Each
- * carries a stable id so the remote pool can override or retire any of
- * them without a CLI release.
+ * That is upstream product-funnel content, not functionality, so the pool is
+ * empty here. Note the reason this had to be emptied SEPARATELY from the
+ * network removal: these messages rendered with zero network I/O, so
+ * neutering the transports alone would have left the promo row populated.
+ *
+ * The `MESSAGES` symbol itself is retained — `funnel/index.ts` re-exports it
+ * and `rotation.ts` merges it as the in-code pool. With the array empty,
+ * `eligibleMessages()` and `eligibleMessagesFromPools()` return [], and every
+ * consumer fails closed exactly as it already did on a cold cache.
+ *
+ * The validation machinery below/above (`isValidMessage`, `isAllowedUrl`,
+ * `containsForbiddenSequences`, `displayWidth`) is deliberately KEPT: it is a
+ * content-sanitizing trust boundary, it makes no network call, and other
+ * modules still import it.
  */
-export const MESSAGES: FunnelMessage[] = [
-  {
-    schemaVersion: 1,
-    id: 'local.disclosure.v1',
-    class: 'disclosure',
-    text: 'Ruflo shows occasional tips and sponsor notes here · manage: ruflo settings',
-  },
-  {
-    schemaVersion: 1,
-    id: 'local.edu.status-watch',
-    class: 'educational',
-    text: '📊 ruflo status watch — real-time system + swarm health dashboard',
-    url: 'https://cognitum.one/docs/statusline',
-  },
-  {
-    schemaVersion: 1,
-    id: 'local.edu.memory-search',
-    class: 'educational',
-    text: '🧠 ruflo memory search — semantic search over your project decisions',
-    url: 'https://cognitum.one/docs/memory',
-  },
-  {
-    schemaVersion: 1,
-    id: 'local.edu.swarm-init',
-    class: 'educational',
-    text: '🐝 ruflo swarm init — hierarchical anti-drift multi-agent coordination',
-    url: 'https://cognitum.one/docs/swarm',
-  },
-  {
-    schemaVersion: 1,
-    id: 'local.edu.security-scan',
-    class: 'educational',
-    text: '🔒 ruflo security scan --depth deep — audits dependencies and config',
-    url: 'https://cognitum.one/docs/security',
-  },
-  {
-    schemaVersion: 1,
-    id: 'local.edu.doctor',
-    class: 'educational',
-    text: '🩺 ruflo doctor --fix — diagnose and auto-repair install issues',
-    url: 'https://cognitum.one/docs/doctor',
-  },
-  {
-    schemaVersion: 1,
-    id: 'local.edu.hooks-route',
-    class: 'educational',
-    text: '🪝 ruflo hooks route — 3-tier model routing cuts token cost 30–75%',
-    url: 'https://cognitum.one/docs/hooks',
-  },
-  {
-    schemaVersion: 1,
-    id: 'local.edu.adr-index',
-    class: 'educational',
-    text: '📚 ruflo adr index — every architecture decision indexed and searchable',
-    url: 'https://github.com/ruvnet/ruflo/tree/main/docs/adr',
-  },
-  {
-    schemaVersion: 1,
-    id: 'local.edu.agent-spawn',
-    class: 'educational',
-    text: '⚡ ruflo agent spawn -t coder — background agents with anti-drift topology',
-    url: 'https://cognitum.one/docs/agents',
-  },
-  {
-    schemaVersion: 1,
-    id: 'local.promo.cognitum',
-    class: 'promotional',
-    text: '✨ Cognitum • sponsored capacity for community jobs · manage: ruflo settings',
-    url: 'https://cognitum.one',
-  },
-];
+export const MESSAGES: FunnelMessage[] = [];
 
 /** Messages that survive every content boundary right now. */
 export function eligibleMessages(now: Date = new Date()): FunnelMessage[] {

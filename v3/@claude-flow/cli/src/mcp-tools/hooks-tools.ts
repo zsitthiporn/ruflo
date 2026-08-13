@@ -2249,7 +2249,7 @@ export const hooksSessionStart: MCPTool = {
 // Session end hook - stops daemon
 export const hooksSessionEnd: MCPTool = {
   name: 'hooks_session-end',
-  description: 'End current session, stop daemon, and persist state Use when native Bash hooks (via Claude Code\'s settings.json) are wrong because you need Ruflo-side state — pattern persistence, neural training signals, model-routing learning, cost tracking, audit chain. For one-off shell commands, plain Bash hooks are fine.',
+  description: 'End current session, stop daemon, and record a session summary in the memory store — despite the returned `statePath`, no session-state file is written to disk, and nothing later reads that path (hooks_session-restore rebuilds from the memory store, not from statePath). Use the `session_save` tool to actually persist session state to a file. Otherwise use when native Bash hooks (via Claude Code\'s settings.json) are wrong because you need Ruflo-side state — pattern persistence, neural training signals, model-routing learning, cost tracking, audit chain. For one-off shell commands, plain Bash hooks are fine.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -2328,6 +2328,11 @@ export const hooksSessionEnd: MCPTool = {
     return {
       sessionId,
       duration: 3600000, // 1 hour in ms
+      // NOTE: this is a computed path string, not confirmation of a write.
+      // No code anywhere writes to `.claude/sessions/<id>.json`, and
+      // hooks_session-restore never reads it either — real persistence for
+      // this call happens via bridgeSessionEnd() into the memory store
+      // above. Use the `session_save` tool for an actual state file.
       statePath: saveState ? `.claude/sessions/${sessionId}.json` : undefined,
       daemon: { stopped: daemonStopped },
       sessionPersistence: sessionPersistence || { controller: 'none', persisted: false },

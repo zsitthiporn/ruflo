@@ -3,7 +3,7 @@
  *
  * The self-optimizing loop's workers (distillation, backup, and the future
  * evolve worker) are inert unless the daemon runs — but it required a manual
- * `ruflo daemon start`. This ensures a daemon is running on CLI use, SAFELY:
+ * `ruflo daemon start`. This can run a daemon on ordinary CLI use, SAFELY:
  *
  *   - single-instance: only starts when no live daemon holds the pidfile, and
  *     the spawned `daemon start` independently enforces single-instance via its
@@ -11,19 +11,30 @@
  *   - bounded lifetime: the daemon self-terminates on TTL/idle (12h hard TTL,
  *     30m idle default; RUFLO_DAEMON_TTL_SECS / RUFLO_DAEMON_IDLE_SECS) —
  *     auto-start never means "runs forever",
- *   - opt-out: RUFLO_DAEMON_AUTOSTART=0|false|no disables it entirely, OR a
- *     project-local `daemon.autostart: false` in claude-flow.config.json —
- *     the file-based opt-out exists because the env var only reaches a
- *     process that inherited it. A non-interactive shell (cron, CI, many
- *     tool-invoked shells — bash skips ~/.bashrc entirely for these; see
- *     its own `case $- in *i*) ;; *) return;; esac` guard) never re-sources
- *     a shell rc file per invocation, so `export RUFLO_DAEMON_AUTOSTART=0`
- *     in one such shell does NOT persist to the next one. A project config
- *     field has no such gap — it's read fresh from disk every time,
- *     independent of which shell (or whether any shell at all) launched
- *     the command,
+ *   - issue #10 (opt-IN, default OFF): a background process that outlives its
+ *     command, with its own writer touching a store that has no write
+ *     locking, is not something to start without being asked. Explicit
+ *     opt-in via RUFLO_DAEMON_AUTOSTART=1|true|on|yes, OR a project-local
+ *     `{ "daemon": { "autostart": true } }` in claude-flow.config.json — the
+ *     file-based path exists because the env var only reaches a process that
+ *     inherited it. A non-interactive shell (cron, CI, many tool-invoked
+ *     shells — bash skips ~/.bashrc entirely for these; see its own
+ *     `case $- in *i*) ;; *) return;; esac` guard) never re-sources a shell
+ *     rc file per invocation, so `export RUFLO_DAEMON_AUTOSTART=1` in one
+ *     such shell does NOT persist to the next one. A project config field has
+ *     no such gap — it's read fresh from disk every time, independent of
+ *     which shell (or whether any shell at all) launched the command. The
+ *     config file is authoritative when present (either direction), so
+ *     `daemon.autostart: false` still forces it off even under a
+ *     globally-exported RUFLO_DAEMON_AUTOSTART=1 — anyone who already relied
+ *     on the pre-#10 opt-out keeps working exactly the same; RUFLO_DAEMON_
+ *     AUTOSTART=0 also still means off, same as before, just now redundant
+ *     with the new default,
  *   - cheap: a pidfile read + a signal-0 liveness check on the fast path,
- *   - best-effort + silent: never blocks or fails a command.
+ *   - best-effort + silent-on-failure: never blocks or fails a command. When
+ *     it DOES start something, the caller (index.ts) announces it in a way
+ *     that survives --quiet — see the writeErrorln call there instead of
+ *     printInfo.
  *
  * Reuses `daemon start` verbatim (all its lock/TTL/worker machinery) — this
  * module only decides WHETHER to spawn, never reimplements the daemon.
@@ -48,20 +59,32 @@ export function isDaemonAlive(projectRoot: string): boolean {
   }
 }
 
-/** Project-local opt-out: `{ "daemon": { "autostart": false } }` in claude-flow.config.json. */
-function autostartDisabledByProjectConfig(projectRoot: string): boolean {
+/**
+ * Project-local override: `{ "daemon": { "autostart": <bool> } }` in
+ * claude-flow.config.json. Returns `undefined` when the file is absent,
+ * malformed, or doesn't set the key — the parse error must fail OPEN to "no
+ * opinion" (fall through to the env var), never silently force a state
+ * either way.
+ */
+function projectAutostartConfig(projectRoot: string): boolean | undefined {
   try {
     const raw = fs.readFileSync(path.join(projectRoot, 'claude-flow.config.json'), 'utf-8');
     const cfg = JSON.parse(raw);
-    return cfg?.daemon?.autostart === false;
+    return typeof cfg?.daemon?.autostart === 'boolean' ? cfg.daemon.autostart : undefined;
   } catch {
-    return false; // absent/malformed config = not disabled
+    return undefined; // absent/malformed config = no opinion, defer to the env var
   }
 }
 
-function autostartDisabled(projectRoot: string): boolean {
-  if (/^(0|false|no|off)$/i.test(process.env.RUFLO_DAEMON_AUTOSTART ?? '')) return true;
-  return autostartDisabledByProjectConfig(projectRoot);
+/**
+ * Issue #10: default OFF. Explicit opt-in only — RUFLO_DAEMON_AUTOSTART set
+ * to a truthy value, or a project config that says so. A project config
+ * verdict (either direction) wins over the env var when present.
+ */
+function autostartEnabled(projectRoot: string): boolean {
+  const configured = projectAutostartConfig(projectRoot);
+  if (configured !== undefined) return configured;
+  return /^(1|true|on|yes)$/i.test(process.env.RUFLO_DAEMON_AUTOSTART ?? '');
 }
 
 /**
@@ -109,27 +132,67 @@ export interface EnsureResult { started: boolean; reason?: string }
 /** Spawn `daemon start` detached, reusing all its lock/TTL machinery. Injectable for tests. */
 export type SpawnDaemonFn = (projectRoot: string) => void;
 
-const defaultSpawn: SpawnDaemonFn = (projectRoot) => {
+export interface DaemonSpawnPlan {
+  command: string;
+  args: string[];
+  options: Record<string, unknown>;
+}
+
+/**
+ * Build the exact spawn plan for the detached `daemon start` launcher.
+ *
+ * Root resolution must agree BY CONSTRUCTION, not by coincidence (issue #10).
+ * The daemon's own `daemon start` action (commands/daemon.ts) resolves its
+ * workspace as `resolveWorkspaceFlag(ctx.flags.workspace) ?? process.cwd()`
+ * — it never reads CLAUDE_FLOW_CWD. Previously we relied on the spawn's
+ * `cwd:` option (the child's OS working directory) happening to equal the
+ * caller's already-resolved `projectRoot`, with the inherited
+ * CLAUDE_FLOW_CWD env var along for the ride but unread by anything in the
+ * chain — correct today only because nothing consults it. Stamping
+ * `--workspace <root>` explicitly removes that coincidence: the child's own
+ * flag resolution outranks its cwd, so root selection no longer depends on
+ * the two staying in sync. We also overwrite CLAUDE_FLOW_CWD in the child's
+ * env to match, so any other code in the daemon process that reads that var
+ * (now or later) agrees with the same root rather than a stale inherited
+ * value.
+ */
+export function buildDaemonSpawnPlan(projectRoot: string): DaemonSpawnPlan {
+  const resolvedRoot = path.resolve(projectRoot);
   const cliBin = process.argv[1]; // the running bin/cli.js
-  const child = spawn(process.execPath, [cliBin, 'daemon', 'start', '--quiet'], {
-    cwd: projectRoot,
-    detached: true,
-    stdio: 'ignore',
-    env: { ...process.env },
-  });
+  return {
+    command: process.execPath,
+    args: [cliBin, 'daemon', 'start', '--quiet', '--workspace', resolvedRoot],
+    options: {
+      cwd: resolvedRoot,
+      detached: true,
+      stdio: 'ignore',
+      env: { ...process.env, CLAUDE_FLOW_CWD: resolvedRoot },
+    },
+  };
+}
+
+const defaultSpawn: SpawnDaemonFn = (projectRoot) => {
+  const plan = buildDaemonSpawnPlan(projectRoot);
+  const child = spawn(plan.command, plan.args, plan.options);
   child.unref();
 };
 
 /**
- * Ensure a daemon is running for `projectRoot`. No-op when disabled or when one
- * is already alive. Best-effort; never throws.
+ * Ensure a daemon is running for `projectRoot`. No-op unless explicitly
+ * opted in (issue #10 — default OFF) or one is already alive. Best-effort;
+ * never throws.
  */
 export function ensureDaemonRunning(
   projectRoot: string,
   opts: { spawnFn?: SpawnDaemonFn; isAlive?: (root: string) => boolean } = {},
 ): EnsureResult {
   try {
-    if (autostartDisabled(projectRoot)) return { started: false, reason: 'disabled (RUFLO_DAEMON_AUTOSTART=0 or project config)' };
+    if (!autostartEnabled(projectRoot)) {
+      return {
+        started: false,
+        reason: 'autostart is opt-in, default off (set RUFLO_DAEMON_AUTOSTART=1 or daemon.autostart:true in claude-flow.config.json to enable)',
+      };
+    }
     if (!isRufloProject(projectRoot)) {
       return { started: false, reason: 'not a ruflo project' };
     }

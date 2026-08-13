@@ -143,18 +143,26 @@ export class CLI {
         // ADR-324: existing installations acquire a versioned policy state on
         // first use. Migration is additive and starts in legacy mode, so older
         // AgentDB, MCP, hooks, and swarm workflows keep their exact behavior.
-        try {
-          const { autoMigratePolicyStateIfNeeded } = await import('./services/policy-runtime.js');
-          const migration = await autoMigratePolicyStateIfNeeded(process.cwd());
-          if (migration.migrated && this.output.isVerbose()) {
-            this.output.printDebug(`Initialized agentic policy compatibility state (${migration.mode})`);
-          }
-        } catch (error) {
-          // Legacy compatibility requires startup to remain available if the
-          // policy state cannot be initialized. Enforce-mode actions still
-          // fail at their authoritative dispatcher when state is unreadable.
-          if (this.output.isVerbose()) {
-            this.output.printDebug(`Policy compatibility migration skipped: ${error instanceof Error ? error.message : String(error)}`);
+        // Issue #10: skip entirely for --help/-h (mirrors the flags checked at
+        // the "no command" help branch below) — an informational command must
+        // write nothing, anywhere. Root resolved via getProjectCwd() (not raw
+        // process.cwd()) so this respects a pinned CLAUDE_FLOW_CWD the same way
+        // task/session/memory already do.
+        if (!flags.help && !flags.h) {
+          try {
+            const { autoMigratePolicyStateIfNeeded } = await import('./services/policy-runtime.js');
+            const { getProjectCwd } = await import('./mcp-tools/types.js');
+            const migration = await autoMigratePolicyStateIfNeeded(getProjectCwd());
+            if (migration.migrated && this.output.isVerbose()) {
+              this.output.printDebug(`Initialized agentic policy compatibility state (${migration.mode})`);
+            }
+          } catch (error) {
+            // Legacy compatibility requires startup to remain available if the
+            // policy state cannot be initialized. Enforce-mode actions still
+            // fail at their authoritative dispatcher when state is unreadable.
+            if (this.output.isVerbose()) {
+              this.output.printDebug(`Policy compatibility migration skipped: ${error instanceof Error ? error.message : String(error)}`);
+            }
           }
         }
 
@@ -204,18 +212,35 @@ export class CLI {
           }
         } catch { /* silent */ }
 
-        // Self-running daemon: ensure the background workers (distillation,
-        // backup, …) are actually firing without a manual `daemon start`.
-        // Single-instance (only spawns when none is alive; the spawned daemon
-        // re-checks its own lock), bounded (TTL/idle self-shutdown), opt-out via
-        // RUFLO_DAEMON_AUTOSTART=0. Skipped for `daemon` (no recursion). Detached
-        // + fire-and-forget, so it never blocks the command.
-        if (commandPath[0] !== 'daemon') {
+        // Self-running daemon: can fire the background workers (distillation,
+        // backup, …) without a manual `daemon start`. Single-instance (only
+        // spawns when none is alive; the spawned daemon re-checks its own
+        // lock), bounded (TTL/idle self-shutdown). Issue #10: opt-IN, default
+        // OFF — RUFLO_DAEMON_AUTOSTART=1 or daemon.autostart:true in
+        // claude-flow.config.json (see daemon-autostart.ts). Skipped for
+        // `daemon` (no recursion) and for --help/-h (an informational command
+        // starts nothing). Detached + fire-and-forget, so it never blocks the
+        // command.
+        if (commandPath[0] !== 'daemon' && !flags.help && !flags.h) {
           try {
             const { ensureDaemonRunning } = await import('./services/daemon-autostart.js');
-            const d = ensureDaemonRunning(process.cwd());
+            // Issue #10: was process.cwd() — ignored a pinned CLAUDE_FLOW_CWD,
+            // so the spawned daemon rooted itself at the real OS cwd instead of
+            // the intended project (see daemon-autostart.ts for the matching
+            // spawn-side fix that makes this explicit rather than inherited).
+            const { getProjectCwd } = await import('./mcp-tools/types.js');
+            const daemonRoot = getProjectCwd();
+            const d = ensureDaemonRunning(daemonRoot);
             if (d.started) {
-              this.output.printInfo(`Started Ruflo background daemon for ${process.cwd()} (stop: ruflo daemon stop)`);
+              // Issue #10: this.output.printInfo() is suppressed under
+              // --quiet — but a background process that outlives its command
+              // must announce itself even in quiet mode, since --quiet is
+              // exactly the flag automation/hooks pass (and `daemon start`
+              // passes --quiet to its own re-fork). writeErrorln() is the
+              // same stderr channel printInfo uses, minus the verbosity gate.
+              this.output.writeErrorln(
+                `${this.output.color('[INFO]', 'blue', 'bold')} Started Ruflo background daemon for ${daemonRoot} (stop: ruflo daemon stop)`,
+              );
             }
           } catch { /* silent */ }
         }

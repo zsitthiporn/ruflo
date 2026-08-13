@@ -183,8 +183,24 @@ Do not trust these; they are documented here so they are not rediscovered:
   `task status <id>` prints `Task: undefined`, and `task list --all` reports "No
   tasks found" against a store that demonstrably holds tasks. Persistence is fine;
   only the display path is broken. **Read the board through the MCP tools.**
-- `memory init` silently spawns a background daemon (`daemon start --workspace <cwd>`)
-  that nobody asked for. Check for and terminate strays after running it.
+- ~~`memory init` silently spawns a background daemon.~~ **Fixed 2026-08-14, and it
+  was never confined to `memory init`.** Nearly *every* command called
+  `ensureDaemonRunning(process.cwd())` — ignoring `CLAUDE_FLOW_CWD`, so a command
+  run with the pin set still rooted a daemon at whatever directory the process
+  happened to be in. An agent hit this live: `task create` in a pinned scratch
+  workspace spawned a daemon against this repo.
+
+  Now: autostart is **opt-in** (`RUFLO_DAEMON_AUTOSTART=1|true|on|yes`, or
+  `daemon.autostart: true` in `claude-flow.config.json`, config winning over env);
+  `--help`/`-h` start nothing; the spawn plan stamps one resolved root into argv,
+  `cwd`, and the child's `CLAUDE_FLOW_CWD` so all three agree by construction; and
+  the "started a daemon" line moved off `printInfo` — which `--quiet` suppresses —
+  so a background process that outlives its command always says so.
+
+  Why this mattered more than tidiness: the daemon's `consolidate` worker writes
+  memory, and concurrent writes to this state layer are lost silently while
+  reporting success. An unrequested daemon was a second writer against a store
+  with no locking.
 
 ### Verified by execution, 2026-08-13
 

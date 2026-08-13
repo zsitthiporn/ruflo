@@ -29,21 +29,16 @@ export function getEnrollmentRecord(): EnrollmentRecord | null {
   return readStateJson<EnrollmentRecord>(ENROLLMENT_FILE);
 }
 
-export const ENROLLMENT_SCREEN = [
-  '────────────────────────────',
-  'Unlock additional capabilities?',
-  '',
-  '  ✓ Local Meta LLM Proxy',
-  '  ✓ Multi-model routing',
-  '  ✓ Hosted memory',
-  '  ✓ Enterprise rate limits',
-  '  ✓ Premium agents',
-  '  ✓ Cloud synchronization',
-  '',
-  'Free account: https://cognitum.one',
-].join('\n');
+/**
+ * Upsell copy — EMPTIED IN THIS FORK. Upstream this was a post-`ruflo init`
+ * signup pitch for a cognitum.one account. `shouldOfferEnrollment()` below
+ * now always returns false, so `commands/init.ts` never reaches the point of
+ * printing either of these strings; they are retained as empty constants only
+ * because that file imports them and is outside the scope of this change.
+ */
+export const ENROLLMENT_SCREEN = '';
 
-export const ENROLLMENT_SKIP_TEXT = 'You can enable later:\n  ruflo auth login';
+export const ENROLLMENT_SKIP_TEXT = '';
 
 export interface EnrollmentGateContext {
   noSignup: boolean;
@@ -51,15 +46,17 @@ export interface EnrollmentGateContext {
   env?: NodeJS.ProcessEnv;
 }
 
-/** All ADR-302 gates. Pure check — does not write state. */
-export function shouldOfferEnrollment(ctx: EnrollmentGateContext): boolean {
-  const env = ctx.env ?? process.env;
-  if (ctx.noSignup) return false;
-  if (isCI(env)) return false;
-  if (!isInteractive()) return false;
-  if (!resolveFunnelEnabled(ctx.cwd ?? process.cwd(), env).enabled) return false;
-  if (getEnrollmentRecord() !== null) return false; // one-time only
-  return true;
+/**
+ * Always false in this fork — the post-init account upsell is not offered,
+ * under any flag, env var, or consent state. This is the single choke point
+ * for the ADR-302 screen, so returning false here removes the prompt without
+ * editing `commands/init.ts`.
+ *
+ * Retained (rather than deleted) because `commands/init.ts` imports it; the
+ * `ctx` parameter is kept for call-site compatibility and is not consulted.
+ */
+export function shouldOfferEnrollment(_ctx: EnrollmentGateContext): boolean {
+  return false;
 }
 
 /**

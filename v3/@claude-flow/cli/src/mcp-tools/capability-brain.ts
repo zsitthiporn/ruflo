@@ -114,7 +114,22 @@ export interface CapabilityBrain {
   };
 }
 
-/** Top-level commands from the CLI command loader. Kept as a checked manifest. */
+/**
+ * Top-level commands advertised to agents.
+ *
+ * WARNING — this list is hand-maintained and NOTHING verifies it against
+ * `commandLoaders` in `src/commands/index.ts`. The previous comment here
+ * called it "a checked manifest", which was not true: no test, no assertion,
+ * and no build step compares the two. It is a copy that drifts silently, and
+ * an agent reading a stale entry is told to run a command that does not
+ * dispatch. Treat it as documentation, not as a source of truth. (Building
+ * the actual check is a separate decision, deliberately not made here.)
+ *
+ * `funnel`, `advisor`, `spinner`, and `announcements` were removed when the
+ * upstream product-funnel subsystem was cut from this fork — they are no
+ * longer in `commandLoaders` and would 'not found' if an agent tried them.
+ * `eject`, `settings`, `auth`, and `proxy` are still registered and stay.
+ */
 export const RUFLO_CLI_COMMANDS = [
   'init', 'start', 'status', 'task', 'session', 'agent', 'swarm', 'memory',
   'mcp', 'config', 'migrate', 'hooks', 'workflow', 'hive-mind', 'process',
@@ -123,8 +138,7 @@ export const RUFLO_CLI_COMMANDS = [
   'doctor', 'verify', 'analyze', 'route', 'progress', 'issues', 'update',
   'ruvector', 'benchmark', 'guidance', 'appliance', 'appliance-advanced',
   'transfer-store', 'cleanup', 'autopilot', 'gaia-bench', 'metaharness',
-  'eject', 'funnel', 'settings', 'auth', 'proxy', 'advisor', 'spinner',
-  'announcements',
+  'eject', 'settings', 'auth', 'proxy',
 ] as const;
 
 export interface ImplementationLoopStep {

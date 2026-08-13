@@ -84,21 +84,40 @@ const commandLoaders: Record<string, CommandLoader> = {
   metaharness: () => import('./metaharness.js'),
   // Eject (ADR-150 Phase 2) — lift ruflo project into a renamed standalone harness
   eject: () => import('./eject.js'),
-  // Cognitum lifecycle funnel controls (ADR-301/305/309)
-  funnel: () => import('./funnel.js'),
-  // User-facing preferences wrapper (ADR-311 copy discipline — no "funnel" in
-  // the user surface). Forwards to the funnel primitives internally.
+  // NOTE: `funnel` (ADR-301/305/309) is UNREGISTERED in this fork. Its
+  // backing subsystem — the remote message feed, click attribution, and the
+  // statusline promo row — has been removed, so the command could only report
+  // on and toggle machinery that no longer exists. `src/commands/funnel.ts`
+  // itself is left on disk as dead code for the lead to delete; it is outside
+  // the scope of this change.
+  //
+  // User-facing preferences wrapper. It still owns the genuinely useful,
+  // non-promotional surfaces (consent receipts, rate-limit + power-saver
+  // status), so it stays registered.
   settings: () => import('./settings.js'),
   // Cognitum identity — login/logout/status (ADR-306)
   auth: () => import('./auth.js'),
   // Meta LLM Proxy — sponsored downtime capacity (ADR-304/307/313)
   proxy: () => import('./proxy.js'),
-  // Fable co-pilot advisor tip in the statusline insight ticker (ADR-316)
-  advisor: () => import('./advisor.js'),
-  // Ruflo verbs in Claude Code's spinnerVerbs rotation (ADR-318)
-  spinner: () => import('./spinner.js'),
-  // Ruflo entries in Claude Code's companyAnnouncements startup rotation (ADR-319)
-  announcements: () => import('./announcements.js'),
+  // UNREGISTERED in this fork — all three drove upstream's product funnel:
+  //
+  //   advisor       (ADR-316) fed the statusline insight ticker from a
+  //                 budgeted `claude -p` call. The ticker's row is gone and
+  //                 the refresh path is inert, so the command has nothing to
+  //                 manage. `src/commands/advisor.ts` remains as dead code.
+  //   spinner       (ADR-318) wrote sponsor-tagged verbs into
+  //                 ~/.claude/settings.json — Claude Code's OWN global
+  //                 config, not this tool's. `src/commands/spinner.ts` is
+  //                 DELETED, not merely unregistered.
+  //   announcements (ADR-319) wrote startup announcements into that same
+  //                 global settings.json. Its consent posture was honest
+  //                 (default OFF, explicit opt-in), but "nothing writes to
+  //                 ~/.claude/settings.json" is unconditional here, so the
+  //                 surface goes regardless. `src/commands/announcements.ts`
+  //                 remains on disk as dead code for the lead to delete.
+  //
+  // Nothing may re-register these without also restoring a settings.json
+  // writer, which is the thing this removal exists to prevent.
   // AGNTCY/Outshift runtime transport selection (ADR-324 §2) — optional,
   // removable augmentation; no-ops to local transport when AGNTCY/SLIM is
   // not configured (RUFLO_AGNTCY_SLIM_ENDPOINT unset).

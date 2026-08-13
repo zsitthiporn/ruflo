@@ -3,11 +3,11 @@
     "version": "3.35.0",
     "files": {
       "auto-memory-hook.mjs": "e3e1033b24704992ddef6b31c7fa9dd7fcd9e1af7935dd77ef73402b916b31e6",
-      "hook-handler.cjs": "afb07f48c0df68653690df6d7896d56b7a132ed3f187225fdb0dbd21169f0a22",
+      "hook-handler.cjs": "2646eb0669661a5ebe30c26614a86d3d5ffea38b1f2002d922638c68db8883d6",
       "intelligence.cjs": "3abc5b0199886be96d9df5546148851a1c004749b113d6e0f00990ec42a97927",
-      "statusline.cjs": "0b9831c2829a6cb3e2480a5285b0a54da5bd6cc94b00f11524a4d795f5f8f19e"
+      "statusline.cjs": "727544589589b292c2e01be7f23ddf3417aba8f33d8c8d987ce1b971abfc4f04"
     }
   },
-  "signature": "iDNtkWaQgIHFBrYMg1RLiP1gy79iveAoNMHERUNmF0qzGVh5zaR53RBKmbtMni90QUV1nK6gf7m76lU4ZQ5jBg==",
+  "signature": "hGCSSM2NQn37MUfxJKsW3/30nqGwXHqEJKrftaU/Q7+UdBLkfTmSxjRJ9NZRb2HsUGh1MJXaSPSKwiDSD9sHAA==",
   "algorithm": "ed25519"
 }

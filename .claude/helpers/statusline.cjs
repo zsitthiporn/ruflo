@@ -6,8 +6,9 @@
  * readers locally using fragile file probes that missed AgentDB patterns,
  * the v3/docs/adr/ ADR directory, and the real vector count.
  *
- * This version delegates to 'npx @claude-flow/cli hooks statusline --json'
- * as the single source of truth. That command queries AgentDB directly,
+ * This version delegates to a locally-installed `@claude-flow/cli hooks
+ * statusline --json` as the single source of truth (no npx — this fork runs
+ * only its own code). That command queries AgentDB directly,
  * counts ADRs in both directories, and reports the real intelligence pct.
  *
  * ADR counting falls back to local file reads so the display still works
@@ -53,32 +54,9 @@ const CWD = process.cwd();
 // claude.exe spawns hook/statusline subprocesses without CREATE_NO_WINDOW,
 // producing a visible cmd flash on every render): bumped 60s → 300s to
 // reduce the flash rate 5x on Windows until the upstream fix ships.
-// Tradeoff: stat/git counters update every 5min instead of every 1min;
-// promo/insight row still rotates on its own tighter 20s promoFresh clock.
+// Tradeoff: stat/git counters update every 5min instead of every 1min.
 const CACHE_FILE = path.join(os.tmpdir(), 'ruflo-statusline-cache-' + require('crypto').createHash('md5').update(CWD).digest('hex').slice(0, 8) + '.json');
 const CACHE_TTL_MS = 300000;
-
-// The promo/insight row is designed to rotate on a 20s cadence (funnel/
-// rotation.ts's ROTATION_SLOT_MS / funnel/promo.ts's insight-slot check —
-// duplicated here as a bare number since this generated script has no
-// runtime import of the funnel module; keep in sync if that constant ever
-// changes). The rotation slot is only ever (re)computed SERVER-SIDE inside
-// the CLI subprocess this file shells out to — so a general 60s data cache
-// (correct and necessary for #2337) silently made that 20s design
-// unreachable: cache.fresh stayed true across 2-3 whole rotation slots,
-// so the row visibly "didn't rotate" (user report). Fix: track promo
-// freshness on its OWN, tighter clock — when it lags behind the current
-// slot, fall through to a real CLI call even though the REST of the
-// cached data (security/swarm/system) is still within CACHE_TTL_MS. This
-// does not touch or regress #2337's fix; it only adds a narrower check.
-const PROMO_ROTATION_SLOT_MS = 20000;
-
-// Persistent last-known-good promo record. Lives outside the /tmp cache so it
-// survives a full cache wipe / cache write race / CLI failure combo. Written
-// every time we successfully render a promo; read as a last resort so the row
-// never blinks out mid-session (was: 'promo shows then hides' bug report).
-const PROMO_MEMO_FILE = path.join(os.homedir(), '.ruflo', 'statusline-promo.json');
-const PROMO_MEMO_TTL_MS = 6 * 60 * 60 * 1000; // 6h — long enough to bridge any hiccup, short enough that a real disable takes effect fast.
 
 // #2337: resolve an already-installed @claude-flow/cli (or ruflo) bin so we
 // can invoke it directly via `node`. The previous version called
@@ -97,10 +75,9 @@ const PROMO_MEMO_TTL_MS = 6 * 60 * 60 * 1000; // 6h — long enough to bridge an
 // checkout whose dist/ imports a workspace package, '@claude-flow/cli-core',
 // that isn't bundled there — every invocation throws ERR_MODULE_NOT_FOUND).
 // Picking the first EXISTING path and never falling through meant a single
-// broken install silently killed the promo row for the entire session (the
-// CLI call always failed, so the memo could never refresh and eventually
-// expired). getStatuslineData() now walks this whole list and tries the next
-// candidate on failure, so one broken install can't permanently wedge it.
+// broken install silently degraded every render to the local fallback for the
+// entire session. getStatuslineData() now walks this whole list and tries the
+// next candidate on failure, so one broken install can't permanently wedge it.
 function resolveCliBinCandidates() {
   const candidates = [];
   try {
@@ -141,51 +118,26 @@ function resolveCliBinCandidates() {
   });
 }
 
-// Return { fresh, promoFresh, data }. 'fresh' is true only if within the TTL
-// — but data is returned regardless (stale-while-revalidate). This lets us
-// serve last known state (specifically the promo row) when the CLI is
-// slow/unavailable, so users don't see the funnel row flicker in and out on
-// cache expiry. 'promoFresh' is a SEPARATE, tighter check on the same clock
-// as PROMO_ROTATION_SLOT_MS — see that constant's comment for why the promo
-// row needs its own freshness bound distinct from the general 60s TTL.
+// Return { fresh, data }. 'fresh' is true only if within the TTL — but data
+// is returned regardless (stale-while-revalidate), so a slow or unavailable
+// CLI still renders last-known state instead of blanking the row.
 function readCache() {
   try {
     if (fs.existsSync(CACHE_FILE)) {
       const raw = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf-8'));
       if (raw && raw._ts && raw.data) {
         const age = Date.now() - raw._ts;
-        return { fresh: age < CACHE_TTL_MS, promoFresh: age < PROMO_ROTATION_SLOT_MS, data: raw.data };
+        return { fresh: age < CACHE_TTL_MS, data: raw.data };
       }
     }
   } catch { /* ignore */ }
-  return { fresh: false, promoFresh: false, data: null };
+  return { fresh: false, data: null };
 }
 
 function writeCache(data) {
   try { fs.writeFileSync(CACHE_FILE, JSON.stringify({ _ts: Date.now(), data }), 'utf-8'); } catch { /* ignore */ }
-  // Also memoize any promo we saw so the row can survive future CLI hiccups.
-  try {
-    if (data && data.promo && typeof data.promo === 'object') {
-      fs.mkdirSync(path.dirname(PROMO_MEMO_FILE), { recursive: true, mode: 0o700 });
-      fs.writeFileSync(PROMO_MEMO_FILE, JSON.stringify({ _ts: Date.now(), promo: data.promo }), { encoding: 'utf-8', mode: 0o600 });
-    }
-  } catch { /* ignore */ }
 }
 
-// Last resort: read a memoized promo (up to 6h old). Used when no cache and
-// no CLI response is available — the row still renders, so users don't see
-// the disclosure blink out. Returns null when the memo is absent, expired,
-// or malformed. Never throws.
-function readPromoMemo() {
-  try {
-    if (!fs.existsSync(PROMO_MEMO_FILE)) return null;
-    const raw = JSON.parse(fs.readFileSync(PROMO_MEMO_FILE, 'utf-8'));
-    if (raw && raw._ts && (Date.now() - raw._ts) < PROMO_MEMO_TTL_MS && raw.promo) {
-      return raw.promo;
-    }
-  } catch { /* ignore */ }
-  return null;
-}
 
 /**
  * Single source of truth: delegate to the CLI hooks statusline --json command.
@@ -195,34 +147,24 @@ function readPromoMemo() {
  * (missed the .swarm/memory.db → AgentDB path), computed dddProgress wrong,
  * and only counted ADRs in v3/implementation/adrs/ (missed v3/docs/adr/).
  */
-// Overlay the memoized promo onto any data object that's missing one. This is
-// the safety net that keeps the funnel row rendered when an OLDER cached CLI
-// version is picked up by npx — that older CLI succeeds but omits promo, so
-// the JSON round-trips clean but without our row. We patch it back here.
-function overlayMemoPromo(data) {
-  if (data && !data.promo) {
-    const memoPromo = readPromoMemo();
-    if (memoPromo) data.promo = memoPromo;
-  }
-  return data;
-}
 
 function getStatuslineData() {
   const cache = readCache();
-  // Both clocks must be satisfied to skip the CLI call entirely: the general
-  // 60s TTL (#2337 — don't re-spawn the CLI on every rapid re-render) AND the
-  // tighter promo-rotation clock (this fix — don't let a still-fresh 60s
-  // cache silently freeze the promo/insight row across multiple 20s slots).
-  if (cache.fresh && cache.promoFresh) {
-    return applyLocalOverlays(overlayMemoPromo(cache.data));
+  // #2337 — don't re-spawn the CLI on every rapid re-render.
+  if (cache.fresh) {
+    return applyLocalOverlays(cache.data);
   }
 
-  // #2337: prefer an already-installed CLI bin via direct `node` invocation —
-  // no npx, no registry round-trip, no @latest re-resolve per render. Try
-  // every candidate that actually EXISTS (not just the first) before falling
-  // back to `npx --prefer-offline @claude-flow/cli` (no @latest); an existing
-  // but broken install (e.g. a stale marketplace checkout missing a bundled
+  // #2337: invoke an already-installed CLI bin directly via `node` — no npx,
+  // no registry round-trip, no @latest re-resolve per render. Try every
+  // candidate that actually EXISTS (not just the first); an existing but
+  // broken install (e.g. a stale marketplace checkout missing a bundled
   // workspace dep) must not block trying the next one.
+  //
+  // There is deliberately NO npx fallback: this fork runs only its own code,
+  // and an npx call would fetch and execute the upstream published package.
+  // With no local candidate we fall through to buildLocalFallback() below,
+  // which still renders every segment from local reads.
   //
   // No `2>/dev/null` here (deliberately) — the execSync call below already
   // sets stdio: ['pipe','pipe','pipe'], which captures/discards stderr at the
@@ -230,12 +172,9 @@ function getStatuslineData() {
   // actively broke every candidate on Windows: cmd.exe (execSync's default
   // shell there) doesn't understand /dev/null, so the CLI delegation always
   // failed, silently degrading every render to buildLocalFallback() — 0%
-  // intelligence and an empty promo row (the memo cache that keeps the row
-  // populated across CLI hiccups is only ever written from a SUCCESSFUL
-  // delegation, so it could never get seeded on Windows either).
+  // intelligence on every render.
   const cmds = resolveCliBinCandidates()
-    .map((bin) => '"' + process.execPath + '" "' + bin + '" hooks statusline --json')
-    .concat(['npx --prefer-offline @claude-flow/cli hooks statusline --json']);
+    .map((bin) => '"' + process.execPath + '" "' + bin + '" hooks statusline --json');
   for (const cmd of cmds) {
     try {
       const raw = execSync(
@@ -249,23 +188,21 @@ function getStatuslineData() {
       // Overlay every block the CLI JSON omits (adrs/agentdb/tests/hooks/integration)
       // with real local reads, so those segments reflect actual state instead of 0.
       applyLocalOverlays(data);
-      overlayMemoPromo(data);
       writeCache(data);
       return data;
     } catch { /* this candidate unavailable, broken, or timed out — try the next */ }
   }
 
   // Stale-while-revalidate: if we have any cached data, keep serving it so the
-  // funnel row doesn't flicker on CLI hiccups. Overlay fresh local reads for
-  // the segments the CLI JSON doesn't populate; the promo row survives.
+  // row doesn't flicker on CLI hiccups. Overlay fresh local reads for the
+  // segments the CLI JSON doesn't populate.
   if (cache.data) {
     applyLocalOverlays(cache.data);
-    overlayMemoPromo(cache.data);
     return cache.data;
   }
 
-  // Last resort: local probes + memo. Users still see the funnel row.
-  return overlayMemoPromo(buildLocalFallback());
+  // Last resort: local probes only.
+  return buildLocalFallback();
 }
 
 // Count ADRs from BOTH known directories (fix for ruflo#2195: old code missed
@@ -954,7 +891,6 @@ function generateStatusline() {
   // replaced by the system guidance / input prompt line):
   //   Line 1 — Header (RuFlo version · git · model · timing · context · cost)
   //   Line 2 — Compressed ops (Swarm · Hooks · 🧠 · 💾 · Health)
-  //   Line 3 — Promo / disclosure row (funnel surface, ADR-301)
 
   // ─── Line 1: header ────────────────────────────────────────────
   let header = c.bold + c.brightPurple + '▊ RuFlo V' + RUFLO_VERSION + ' ' + c.reset;
@@ -1017,181 +953,9 @@ function generateStatusline() {
   }
   lines.push(opsParts.join('  ' + c.dim + '·' + c.reset + '  '));
 
-  // ─── Line 3: promo / disclosure / insight ───────────────────────
-  // Colored by content kind so it reads as *what it is*, not as noise:
-  //   disclosure  → brightCyan   (announcement / capability link)
-  //   promotional → brightPurple (Cognitum sponsor spot)
-  //   educational → yellow       (a tip)
-  //   insight     → brightRed    (environment/task-aware, local, actionable —
-  //                               distinct from remote content on purpose)
-  const promoRow = getPromoRow(d);
-  if (promoRow) {
-    const kind = (d && d.promo && d.promo.kind) || 'disclosure';
-    const promoColor = kind === 'promotional' ? c.brightPurple
-                     : kind === 'educational' ? c.yellow
-                     : kind === 'insight' ? c.brightRed
-                     : c.brightCyan;
-    lines.push(promoColor + promoRow + c.reset);
-  }
-
   // Trailing blank line so Claude Code's input prompt gets breathing room
   // instead of butting directly against the last statusline row.
   return lines.join('\n') + '\n';
-}
-
-// ─── Funnel promo row (ADR-301) ─────────────────────────────────
-// Allowlist for OSC 8 hyperlink targets. Ships in code (not in payload) so
-// no message can smuggle a link to an unapproved host.
-//
-// The final destination hosts (cognitum.one / agentics.org) AND the
-// click-redirect host are both allowlisted here: promo.ts routes every
-// clickable message through the server-side click-redirect (ADR-311 §7)
-// so promo_open + geo are captured before the 302 to the real target —
-// so the OSC 8 link the renderer emits points at the redirect host, not
-// the final destination directly.
-const PROMO_LINK_HOSTS = new Set([
-  'cognitum.one', 'www.cognitum.one', 'docs.cognitum.one',
-  // agentics.org — OSS foundation, distinct sponsor domain. Kept in sync
-  // with messages.ts ALLOWED_URL_HOSTS.
-  'agentics.org', 'www.agentics.org',
-  // Click-redirect host (funnel.ruv.io once its TLS cert is live; the raw
-  // Cloud Run hostname is allowlisted too since event-transport.ts /
-  // message-transport.ts / attribution.ts currently point at it as a TEMP
-  // fallback while the domain mapping's cert provisions).
-  'funnel.ruv.io',
-  'cognitum-analytics-63rzcdswba-uc.a.run.app',
-]);
-
-// Emit OSC 8 hyperlinks unless the environment is known-broken. tmux mangles
-// raw OSC 8 (see anthropics/claude-code#27047) — opt in via env if wrapped.
-function terminalSupportsHyperlinks() {
-  if (process.env.CI || process.env.GITHUB_ACTIONS) return false;
-  if (process.env.TERM === 'dumb') return false;
-  if (/^(0|false|off|no)$/i.test(String(process.env.RUFLO_STATUSLINE_HYPERLINKS || ''))) return false;
-  if (process.env.TMUX && !process.env.RUFLO_STATUSLINE_HYPERLINKS_TMUX) return false;
-  return true;
-}
-
-// Wrap a label in an OSC 8 hyperlink escape sequence. Falls back to the raw
-// label whenever the URL is not an allowlisted https target, when the terminal
-// can't render hyperlinks, or when parsing fails — a broken link must never
-// leave a raw URL or stray escape in the statusline output.
-function safeTerminalLink(label, url) {
-  if (!terminalSupportsHyperlinks()) return label;
-  if (typeof url !== 'string' || url.length === 0) return label;
-  let parsed;
-  try { parsed = new URL(url); } catch { return label; }
-  if (parsed.protocol !== 'https:') return label;
-  if (!PROMO_LINK_HOSTS.has(parsed.hostname)) return label;
-  const cleanLabel = String(label).replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, '');
-  if (cleanLabel.length === 0) return label;
-  const ESC = '\u001b';
-  return ESC + ']8;;' + parsed.href + ESC + '\\' + cleanLabel + ESC + ']8;;' + ESC + '\\';
-}
-
-function getPromoRow(d) {
-  try {
-    if (process.env.CI || process.env.GITHUB_ACTIONS) return null;
-    if (/^(0|false|off|no)$/i.test(String(process.env.RUFLO_FUNNEL || ''))) return null;
-    const promo = d && d.promo;
-    if (!promo || typeof promo.text !== 'string') return null;
-    // Strip control chars / ANSI / bidi overrides — promo copy is data and
-    // must never emit its own terminal sequences. Hard-cap length AFTER the
-    // strip; append an ellipsis when the cap fires so the row visibly reads
-    // as truncated instead of chopping a word mid-character (was: silent
-    // slice(0,100) that could produce output that looked like corrupt data).
-    const MAX_LEN = 100;
-    const sanitized = promo.text
-      .replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, '')
-      ;
-    const text = (sanitized.length > MAX_LEN ? sanitized.slice(0, MAX_LEN - 1).trimEnd() + '…' : sanitized).trim();
-    if (text.length === 0) return null;
-    // Split the label from the trailing "· manage: ruflo settings" instruction
-    // so each part gets styling that matches what it actually IS:
-    //   1. label   — OSC 8 hyperlink + underline. A real clickable link.
-    //   2. "manage:" — dim. Just a connector word, no action implied.
-    //   3. "ruflo settings" — bold/bright, NOT underlined. This is a shell
-    //      command the user TYPES, not a link they CLICK — a terminal can
-    //      never safely execute a command from a click (that would let any
-    //      server-served message run arbitrary commands), so we deliberately
-    //      avoid the underline/OSC8 cues that imply "clickable". Bold+bright
-    //      instead signals "this is the important bit — copy/type it".
-    // Educational tips have no manage tail and no URL — plain text through.
-    const manageIdx = text.indexOf(' · manage: ');
-    const label = manageIdx > 0 ? text.slice(0, manageIdx) : text;
-    const manageWord = manageIdx > 0 ? ' · manage: ' : '';
-    const command = manageIdx > 0 ? text.slice(manageIdx + manageWord.length) : '';
-    const UL_ON = '\u001b[4m';
-    const UL_OFF = '\u001b[24m';
-    const DIM_ON = '\u001b[2m';
-    const DIM_OFF = '\u001b[22m';
-    const BOLD_ON = '\u001b[1m';
-    const BOLD_OFF = '\u001b[22m';
-    const FG_BRIGHT_WHITE = '[97m';
-    // Reset FG to default so the caller's row-color code resumes coloring the
-    // rest of the row after the command portion. Without this the row-color
-    // escape wouldn't visibly re-apply because we already emitted an explicit FG.
-    const FG_DEFAULT = '[39m';
-    // Some hosts (Claude Code's Windows UI, cmd.exe, older mintty) don't
-    // render OSC 8 hyperlinks as clickable — the label just underlines and
-    // clicks do nothing. Append a "(domain)" suffix so the destination is
-    // visible/copyable everywhere. Wrap the suffix in OSC 8 too so terminals
-    // that DO support hyperlinks give users TWO click targets (label AND
-    // domain hint) instead of one — some Windows hosts render one but not
-    // the other depending on how the statusline row is parsed.
-    // Only for URLs (not educational tips), and only when the label doesn't
-    // already end in the domain to avoid duplication.
-    let visibleUrlHint = '';
-    if (promo.url) {
-      try {
-        const host = new URL(promo.url).hostname.replace(/^www\./, '');
-        // Strip the click-redirect wrapper so users see the FINAL destination,
-        // not funnel.ruv.io. If the URL is /v1/click/<id>?to=<encoded>, pull the target.
-        let displayHost = host;
-        try {
-          const to = new URL(promo.url).searchParams.get('to');
-          if (to) displayHost = new URL(to).hostname.replace(/^www\./, '');
-        } catch { /* not a click-redirect, keep the raw host */ }
-        if (displayHost && !label.toLowerCase().endsWith(displayHost.toLowerCase())) {
-          // safeTerminalLink returns the plain string if URL isn't allowlisted
-          // or the terminal can't do OSC 8 — either way the domain stays visible.
-          const clickableDomain = safeTerminalLink(displayHost, promo.url);
-          visibleUrlHint = DIM_ON + ' (' + clickableDomain + ')' + DIM_OFF;
-        }
-      } catch { /* malformed URL — omit hint, never break the row */ }
-    }
-    // "Entire row clickable" (user request) — wrap the whole assembled
-    // string in ONE OSC 8 hyperlink instead of just the label. The command
-    // portion keeps its bold + bright-white treatment (no underline) so it
-    // still VISUALLY reads as a shell command the user should type, not a
-    // link — but if the user clicks anywhere on the row (label, domain
-    // hint, connector, even the command text), the terminal opens the URL.
-    // Clicking DOES NOT execute the command; it just opens the target URL,
-    // which is safe. Terminals that ignore OSC 8 render the whole row as
-    // styled text and no click behavior — the previous fallback (visible
-    // domain suffix) still keeps the destination readable.
-    const wrapWholeRowInHyperlink = (assembled) => {
-      if (!promo.url) return assembled;
-      if (!terminalSupportsHyperlinks()) return assembled;
-      let parsed;
-      try { parsed = new URL(promo.url); } catch { return assembled; }
-      if (parsed.protocol !== 'https:') return assembled;
-      if (!PROMO_LINK_HOSTS.has(parsed.hostname)) return assembled;
-      const ESC = '';
-      return ESC + ']8;;' + parsed.href + ESC + '\\' + assembled + ESC + ']8;;' + ESC + '\\';
-    };
-    // Visual styling stays per-part. We only add the OSC 8 wrap around the
-    // combined string, so the whole row is one click target.
-    const labelStyled = promo.url ? UL_ON + label + UL_OFF : label;
-    if (!command) return wrapWholeRowInHyperlink(labelStyled + visibleUrlHint);
-    return wrapWholeRowInHyperlink(
-      labelStyled + visibleUrlHint
-      + DIM_ON + manageWord + DIM_OFF
-      + BOLD_ON + FG_BRIGHT_WHITE + command + FG_DEFAULT + BOLD_OFF
-    );
-  } catch (e) {
-    return null; // the promo row must never break the statusline
-  }
 }
 
 // JSON output — delegates to CLI for accuracy; caller can use --json flag

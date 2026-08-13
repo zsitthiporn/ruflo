@@ -2251,19 +2251,19 @@ const postTaskCommand: Command = {
 // Session-end subcommand
 const sessionEndCommand: Command = {
   name: 'session-end',
-  description: 'End current session and persist state',
+  description: 'End current session and record its summary in the memory store — no session-state file is written to disk despite the historical name; use the `session_save` tool for that',
   options: [
     {
       name: 'save-state',
       short: 's',
-      description: 'Save session state for later restoration',
+      description: 'Record the session summary in the memory store (session-restore reads from the memory store, not from a state file)',
       type: 'boolean',
       default: true
     }
   ],
   examples: [
-    { command: 'claude-flow hooks session-end', description: 'End and save session' },
-    { command: 'claude-flow hooks session-end --save-state false', description: 'End without saving' }
+    { command: 'claude-flow hooks session-end', description: 'End session, record summary in memory store' },
+    { command: 'claude-flow hooks session-end --save-state false', description: 'End session without recording summary' }
   ],
   action: async (ctx: CommandContext): Promise<CommandResult> => {
     output.printInfo('Ending session...');
@@ -2272,6 +2272,8 @@ const sessionEndCommand: Command = {
       const result = await callMCPTool<{
         sessionId: string;
         duration: number;
+        // Computed path string only — no file is actually written there;
+        // see the note in hooks_session-end's handler.
         statePath?: string;
         summary: {
           tasksExecuted: number;
@@ -2314,7 +2316,7 @@ const sessionEndCommand: Command = {
 
       if (result.statePath) {
         output.writeln();
-        output.writeln(output.dim(`State saved to: ${result.statePath}`));
+        output.writeln(output.dim(`Note: ${result.statePath} was not written to disk — no session-state file is saved. Use the 'session_save' tool to persist session state.`));
       }
 
       return { success: true, data: result };
@@ -5236,19 +5238,19 @@ const modelStatsCommand: Command = {
 // Teammate Idle command - Agent Teams integration
 const teammateIdleCommand: Command = {
   name: 'teammate-idle',
-  description: 'Handle idle teammate in Agent Teams - auto-assign tasks or notify lead',
+  description: 'Acknowledge an idle teammate in Agent Teams — always reports the teammate as waiting (pendingTasks: 0); auto-assignment and lead notification are not yet implemented (tracked in #1916)',
   options: [
     {
       name: 'auto-assign',
       short: 'a',
-      description: 'Automatically assign pending tasks to idle teammate',
+      description: 'Requests auto-assignment of a pending task, but the handler currently ignores this flag and always reports waiting (#1916 follow-up)',
       type: 'boolean',
       default: true
     },
     {
       name: 'check-task-list',
       short: 'c',
-      description: 'Check shared task list for available work',
+      description: 'Requests a shared task-list check, but the handler currently ignores this flag and always reports waiting (#1916 follow-up)',
       type: 'boolean',
       default: true
     },
@@ -5265,7 +5267,7 @@ const teammateIdleCommand: Command = {
     }
   ],
   examples: [
-    { command: 'claude-flow hooks teammate-idle --auto-assign true', description: 'Auto-assign tasks to idle teammate' },
+    { command: 'claude-flow hooks teammate-idle --auto-assign true', description: 'Acknowledge idle teammate (flag currently ignored — always reports waiting)' },
     { command: 'claude-flow hooks teammate-idle -t worker-1 --check-task-list', description: 'Check tasks for specific teammate' }
   ],
   action: async (ctx: CommandContext): Promise<CommandResult> => {
@@ -5333,7 +5335,7 @@ const teammateIdleCommand: Command = {
 // Task Completed command - Agent Teams integration
 const taskCompletedCommand: Command = {
   name: 'task-completed',
-  description: 'Handle task completion in Agent Teams - train patterns and notify lead',
+  description: 'Record task completion in Agent Teams; --train-patterns feeds the SONA/EWC++ learning pipeline (real). --notify-lead does not deliver a notification — leadNotified in the result simply echoes the flag back',
   options: [
     {
       name: 'task-id',
@@ -5352,7 +5354,7 @@ const taskCompletedCommand: Command = {
     {
       name: 'notify-lead',
       short: 'n',
-      description: 'Notify team lead of task completion',
+      description: 'Sets leadNotified in the result to match this flag; no notification is actually delivered',
       type: 'boolean',
       default: true
     },
@@ -5440,7 +5442,7 @@ const taskCompletedCommand: Command = {
         data: [
           { metric: 'Patterns Learned', value: result.patternsLearned },
           { metric: 'Quality Score', value: quality ? `${(quality * 100).toFixed(0)}%` : 'N/A' },
-          { metric: 'Lead Notified', value: result.leadNotified ? 'Yes' : 'No' },
+          { metric: 'Notify-Lead Flag (echo)', value: result.leadNotified ? 'Yes' : 'No' },
           { metric: 'Learning Updates', value: result.metrics?.learningUpdates || 0 }
         ]
       });
@@ -5663,7 +5665,7 @@ export const hooksCommand: Command = {
       `${output.highlight('post-command')}    - Record command execution outcomes`,
       `${output.highlight('pre-task')}        - Record task start and get agent suggestions`,
       `${output.highlight('post-task')}       - Record task completion for learning`,
-      `${output.highlight('session-end')}     - End current session and persist state`,
+      `${output.highlight('session-end')}     - End current session and record its summary in the memory store (no state file written)`,
       `${output.highlight('session-restore')} - Restore a previous session`,
       `${output.highlight('route')}           - Route tasks to optimal agents`,
       `${output.highlight('explain')}         - Explain routing decisions`,
@@ -5684,7 +5686,7 @@ export const hooksCommand: Command = {
       `${output.highlight('model-stats')}    - View model routing statistics`,
       '',
       output.bold('Agent Teams:'),
-      `${output.highlight('teammate-idle')}  - Handle idle teammate (auto-assign tasks)`,
+      `${output.highlight('teammate-idle')}  - Acknowledge idle teammate (always reports waiting; auto-assign not yet implemented, #1916)`,
       `${output.highlight('task-completed')} - Handle task completion (train patterns)`
     ]);
     output.writeln();

@@ -1,13 +1,25 @@
 /**
- * Funnel release-gate invariants — ADR-301..310.
+ * Funnel module invariants — post-removal (GitHub issue #11).
  *
- * Every test here maps to a hard gate in ADR-310:
- *   - promo output in CI: 0
- *   - promotional display before disclosure: 0
- *   - control-sequence injection through message copy: 0
- *   - lower-precedence source re-enabling a higher disable: 0
- *   - credit-recovery on anything but COGNITUM_CREDIT_EXHAUSTED: 0
- *   - funnel events without telemetry consent: 0
+ * Upstream this file gated the product funnel: rotation ratios, the disclosure
+ * gate, click attribution, the /v1/events transport, and the statusline promo
+ * row. That subsystem is removed from this fork, so those suites are gone and
+ * the surviving ones split in two:
+ *
+ *   1. REMOVAL GUARDS — assert the funnel stays gone. An upstream rebase that
+ *      quietly reintroduces it fails here rather than shipping. The final
+ *      describe in this file is the consolidated version of that.
+ *
+ *   2. RETAINED COVERAGE — the parts of `src/funnel/` that were never
+ *      promotional and are still load-bearing for auth / proxy / doctor /
+ *      settings: consent receipts, control precedence, the credit-error
+ *      classifier, the rate-limit and power-saver notifiers, toggle cooldown,
+ *      CI detection, and the message-content sanitizer (kept because it is a
+ *      trust boundary, even though there is no longer any message to sanitize).
+ *
+ * The distinction matters: "the funnel is gone" and "the code that shared a
+ * directory with the funnel still works" are different claims, and both need
+ * to hold.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -23,19 +35,9 @@ import {
   MESSAGES,
   MAX_MESSAGE_COLUMNS,
 } from '../src/funnel/messages.js';
-import {
-  selectMessage,
-  ROTATION_SLOT_MS,
-  PROMO_SLOT_MODULO,
-  PROMO_REPEAT_CAP_MS,
-} from '../src/funnel/rotation.js';
 import { resolveFunnelEnabled } from '../src/funnel/precedence.js';
 import {
   DISCLOSURE_GRACE_MS,
-  DISCLOSURE_ROTATION_SLOT_MS,
-  getDisclosure,
-  promoEligible,
-  recordDisclosureDeclined,
   recordDisclosureShown,
   selectDisclosureMessage,
 } from '../src/funnel/disclosure.js';
@@ -46,21 +48,8 @@ import {
   shouldShowCreditRecovery,
   renderCreditRecovery,
 } from '../src/funnel/credit-errors.js';
-import { getFunnelId, recordFunnelEvent, deleteFunnelData } from '../src/funnel/events.js';
-import { attributionUrl } from '../src/funnel/attribution.js';
-import {
-  flushEvents,
-  DEFAULT_ENDPOINT,
-  MAX_BATCH,
-  MIN_FLUSH_INTERVAL_MS,
-  FLUSH_TIMEOUT_MS,
-} from '../src/funnel/event-transport.js';
-import {
-  markCreditExhausted,
-  clearCreditStatus,
-  readCreditStatus,
-  creditExhaustedNotice,
-} from '../src/funnel/credit-notifier.js';
+import { recordFunnelEvent } from '../src/funnel/events.js';
+import { getRemoteMessages, refreshRemoteMessages } from '../src/funnel/message-transport.js';
 import { getFunnelPromo } from '../src/funnel/promo.js';
 import { isCI } from '../src/funnel/environment.js';
 import {
@@ -79,8 +68,7 @@ import {
 } from '../src/funnel/power-saver-notifier.js';
 import { TOGGLE_COOLDOWN_MS, cooldownActive, cooldownRemainingMin } from '../src/funnel/toggle-cooldown.js';
 import { computeLocalInsights, selectLocalInsight } from '../src/funnel/insights.js';
-import { shouldOfferEnrollment, recordEnrollmentOutcome, getEnrollmentRecord } from '../src/funnel/enrollment.js';
-import { generateStatuslineScript } from '../src/init/statusline-generator.js';
+import { shouldOfferEnrollment } from '../src/funnel/enrollment.js';
 
 let stateDir: string;
 let savedEnv: NodeJS.ProcessEnv;
@@ -191,12 +179,21 @@ describe('message content boundaries (ADR-301)', () => {
     expect(isAllowedUrl('not a url')).toBe(false);
   });
 
-  it('ships a bounded, self-validating local seed pool (cold-start fallback)', () => {
-    expect(MESSAGES.length).toBeGreaterThan(0);
-    for (const message of MESSAGES) expect(isValidMessage(message)).toBe(true);
-    expect(MESSAGES.filter((message) => message.class === 'disclosure')).toHaveLength(1);
-    expect(MESSAGES.filter((message) => message.class === 'promotional')).toHaveLength(1);
-    expect(MESSAGES.every((message) => message.id.startsWith('local.'))).toBe(true);
+  // INVERTED (fork): upstream shipped a baked seed pool of sponsor-linked
+  // tips + one promo so the statusline row had content before the remote
+  // fetch landed. It rendered with ZERO network, so emptying it was a
+  // separate, necessary step from cutting the transports. This guards the
+  // pool staying empty on a future rebase.
+  it('ships NO local message pool — sponsor content is not baked into the binary', () => {
+    expect(MESSAGES).toHaveLength(0);
+  });
+
+  // The validation pipeline is deliberately KEPT: it is a content-sanitizing
+  // trust boundary, makes no network call, and other modules import it. It
+  // must keep working even with nothing to validate.
+  it('still validates ad-hoc messages even with an empty pool', () => {
+    expect(isValidMessage({ id: 'x', schemaVersion: 1, class: 'educational', text: 'a tip' })).toBe(true);
+    expect(isValidMessage({ id: 'y', schemaVersion: 1, class: 'educational', text: 'x'.repeat(500) })).toBe(false);
   });
 
   it('a disclosure-class message without the manage tail is rejected, never repaired', () => {
@@ -205,73 +202,23 @@ describe('message content boundaries (ADR-301)', () => {
     expect(isValidMessage({ ...base, text: '✨ Has it · manage: ruflo settings' })).toBe(true);
   });
 
-  it('selectDisclosureMessage uses the local seed disclosure on cold start', () => {
-    const message = selectDisclosureMessage(new Date());
-    expect(message).not.toBeNull();
-    expect(message!.id).toBe('local.disclosure.v1');
-    expect(message!.class).toBe('disclosure');
+  // INVERTED (fork): upstream selected a rotating disclosure message for the
+  // statusline row. There is no row and no pool, so this must always be null.
+  it('selectDisclosureMessage returns null — there is no disclosure row', () => {
+    expect(selectDisclosureMessage(new Date())).toBeNull();
   });
 
-  it('selectDisclosureMessage is deterministic per 5-minute slot once seeded', () => {
+  // The strongest guard in this file: even if someone repopulates the LOCAL
+  // cache file by hand (or a stale one survives from a pre-fork install), the
+  // transport is inert and nothing is surfaced.
+  it('ignores a hand-seeded remote cache — the transport is inert', () => {
     seedRemoteMessages(TEST_DISCLOSURE_POOL);
-    const t0 = new Date('2026-07-10T12:00:00.000Z');
-    const t0plus1s = new Date(t0.getTime() + 1000);
-    expect(selectDisclosureMessage(t0)?.id).toBe(selectDisclosureMessage(t0plus1s)?.id);
-    const poolSize =
-      TEST_DISCLOSURE_POOL.length + MESSAGES.filter((message) => message.class === 'disclosure').length;
-    const seen = new Set<string>();
-    for (let i = 0; i < poolSize * 2; i++) {
-      seen.add(selectDisclosureMessage(new Date(t0.getTime() + i * DISCLOSURE_ROTATION_SLOT_MS))?.id ?? '');
-    }
-    expect(seen.size).toBe(poolSize);
+    expect(getRemoteMessages()).toHaveLength(0);
+    expect(selectDisclosureMessage(new Date('2026-07-10T12:00:00.000Z'))).toBeNull();
   });
 });
 
 // ─── ADR-301: rotation ratio ────────────────────────────────────────────────
-
-describe('rotation scheduler (ADR-301 content ratio)', () => {
-  it('uses bounded local seed content when no remote pool is cached', () => {
-    const message = selectMessage(new Date());
-    expect(message).not.toBeNull();
-    expect(message!.id.startsWith('local.')).toBe(true);
-    expect(['educational', 'promotional']).toContain(message!.class);
-  });
-
-  it('promotional content appears only in 1-of-5 slots and honors the 30-min cap', () => {
-    seedRemoteMessages(TEST_ROTATION_POOL);
-    const base = Date.UTC(2026, 6, 10, 12, 0, 0);
-    let promos = 0;
-    let educational = 0;
-    const slots = 200; // 200 slots × 20s ≈ 66 minutes
-    for (let i = 0; i < slots; i++) {
-      const now = new Date(base + i * ROTATION_SLOT_MS);
-      const msg = selectMessage(now);
-      expect(msg).not.toBeNull();
-      if (msg!.class === 'promotional') {
-        promos++;
-        // structural ratio: promo only in the designated slot
-        const slot = Math.floor(now.getTime() / ROTATION_SLOT_MS);
-        expect(slot % PROMO_SLOT_MODULO).toBe(PROMO_SLOT_MODULO - 1);
-      } else {
-        educational++;
-      }
-    }
-    // 30-min repeat cap over ~66 minutes → at most 3 promos
-    const maxPromos = Math.floor((slots * ROTATION_SLOT_MS) / PROMO_REPEAT_CAP_MS) + 1;
-    expect(promos).toBeLessThanOrEqual(maxPromos);
-    expect(promos).toBeGreaterThan(0);
-    // ratio: far better than 4:1
-    expect(educational / Math.max(promos, 1)).toBeGreaterThanOrEqual(4);
-  });
-
-  it('is deterministic for a fixed time slot', () => {
-    seedRemoteMessages(TEST_ROTATION_POOL);
-    const now = new Date(Date.UTC(2026, 6, 10, 12, 0, 1));
-    const a = selectMessage(now);
-    const b = selectMessage(now);
-    expect(a?.id).toBe(b?.id);
-  });
-});
 
 // ─── ADR-305: control precedence ────────────────────────────────────────────
 
@@ -323,94 +270,7 @@ describe('control precedence (ADR-305)', () => {
 
 // ─── ADR-301: disclosure gate ───────────────────────────────────────────────
 
-describe('disclosure gate (ADR-301)', () => {
-  it('starts never_seen; no promo before disclosure', () => {
-    expect(getDisclosure().state).toBe('never_seen');
-    expect(promoEligible()).toBe(false);
-  });
-
-  it('first render records disclosed_enabled but promo waits for the grace window', () => {
-    const t0 = new Date();
-    recordDisclosureShown(t0);
-    expect(getDisclosure().state).toBe('disclosed_enabled');
-    expect(promoEligible(t0)).toBe(false);
-    expect(promoEligible(new Date(t0.getTime() + DISCLOSURE_GRACE_MS - 1000))).toBe(false);
-    expect(promoEligible(new Date(t0.getTime() + DISCLOSURE_GRACE_MS + 1000))).toBe(true);
-  });
-
-  it('declining disables all funnel surfaces through the precedence chain', () => {
-    recordDisclosureDeclined();
-    expect(getDisclosure().state).toBe('disclosed_disabled');
-    expect(promoEligible()).toBe(false);
-    expect(resolveFunnelEnabled(stateDir)).toEqual({ enabled: false, decidedBy: 'disclosure-declined' });
-  });
-});
-
 // ─── ADR-301/305: promo orchestrator gates ──────────────────────────────────
-
-describe('promo orchestrator (getFunnelPromo)', () => {
-  it('renders nothing in CI regardless of state', () => {
-    expect(getFunnelPromo({ interactive: true, env: { ...process.env, CI: 'true' } })).toBeNull();
-    expect(getFunnelPromo({ interactive: true, env: { ...process.env, GITHUB_ACTIONS: 'true' } })).toBeNull();
-  });
-
-  it('renders nothing when not interactive', () => {
-    expect(getFunnelPromo({ interactive: false })).toBeNull();
-  });
-
-  it('renders nothing when disabled by any precedence source', () => {
-    expect(getFunnelPromo({ interactive: true, env: { ...process.env, RUFLO_FUNNEL: '0' } })).toBeNull();
-  });
-
-  it('first render uses the local seed disclosure when no remote pool is cached', () => {
-    const row = getFunnelPromo({ interactive: true, cwd: stateDir });
-    expect(row).not.toBeNull();
-    expect(row!.kind).toBe('disclosure');
-    expect(row!.text).toBe(
-      'Ruflo shows occasional tips and sponsor notes here · manage: ruflo settings',
-    );
-  });
-
-  it('first interactive render is the disclosure, never a promotion', () => {
-    seedRemoteMessages(TEST_DISCLOSURE_POOL);
-    const now = new Date(Date.UTC(2026, 6, 10, 12, 0, 0));
-    const row = getFunnelPromo({ interactive: true, cwd: stateDir, now });
-    expect(row).not.toBeNull();
-    expect(row!.kind).toBe('disclosure');
-    // Row text is one of the seeded disclosure variants.
-    expect(TEST_DISCLOSURE_POOL.map((m) => m.text)).toContain(row!.text);
-    // The URL is click-tracked (routes through the server redirect) — the
-    // real cognitum.one/ruflo target rides in the `to` query param.
-    expect(row!.url).toBeDefined();
-    const outer = new URL(row!.url!);
-    expect(outer.pathname).toMatch(/^\/v1\/click\/disclosure-\d+$/);
-    const to = outer.searchParams.get('to');
-    expect(to).toBeTruthy();
-    const parsed = new URL(to!);
-    expect(parsed.origin + parsed.pathname).toBe('https://cognitum.one/ruflo');
-    expect(parsed.searchParams.get('utm_source')).toBe('ruflo');
-    expect(parsed.searchParams.get('utm_medium')).toBe('statusline');
-    expect(parsed.searchParams.get('utm_campaign')).toBe('disclosure');
-    expect(parsed.searchParams.get('utm_content')).toMatch(/^disclosure-\d+$/);
-    // Without telemetry consent (default in this test suite), no fid rides along.
-    expect(parsed.searchParams.get('fid')).toBeNull();
-  });
-
-  it('keeps showing the disclosure through the grace window, then rotates messages', () => {
-    seedRemoteMessages([...TEST_DISCLOSURE_POOL, ...TEST_ROTATION_POOL]);
-    const t0 = new Date(Date.UTC(2026, 6, 10, 12, 0, 0));
-    recordDisclosureShown(t0);
-    const during = getFunnelPromo({ interactive: true, cwd: stateDir, now: new Date(t0.getTime() + 1000) });
-    expect(during!.kind).toBe('disclosure');
-    const after = getFunnelPromo({
-      interactive: true,
-      cwd: stateDir,
-      now: new Date(t0.getTime() + DISCLOSURE_GRACE_MS + 60_000),
-    });
-    expect(after).not.toBeNull();
-    expect(['educational', 'promotional']).toContain(after!.kind);
-  });
-});
 
 // ─── ADR-302: consent receipts ──────────────────────────────────────────────
 
@@ -472,10 +332,14 @@ describe('training-data-sharing consent domain (ADR-315 Tier 2)', () => {
     expect(hasConsent('sponsored-downtime')).toBe(false);
   });
 
-  it('the funnel event schema accepts training_share_enabled/disabled once telemetry is consented', () => {
+  // INVERTED (fork): the event queue existed to be POSTed to
+  // funnel.ruv.io/v1/events. That transport is deleted, so the write path is
+  // gone too — a queue nobody reads is litter, and a repopulated queue would
+  // be shipped wholesale if a rebase ever restored the transport.
+  it('records NO event even with telemetry consent granted', () => {
     recordConsent('telemetry', true, 'test');
-    expect(recordFunnelEvent('training_share_enabled', 'statusline', '3.25.6')).toBe(true);
-    expect(recordFunnelEvent('training_share_disabled', 'statusline', '3.25.6')).toBe(true);
+    expect(recordFunnelEvent('training_share_enabled', 'statusline', '3.25.6')).toBe(false);
+    expect(recordFunnelEvent('training_share_disabled', 'statusline', '3.25.6')).toBe(false);
   });
 });
 
@@ -502,10 +366,11 @@ describe('advisor-tips consent domain (ADR-316)', () => {
     expect(getConsent('advisor-tips').at).not.toBeNull();
   });
 
-  it('the funnel event schema accepts advisor_tip_enabled/disabled once telemetry is consented', () => {
+  // INVERTED (fork) — see the training_share equivalent above.
+  it('records NO advisor event even with telemetry consent granted', () => {
     recordConsent('telemetry', true, 'test');
-    expect(recordFunnelEvent('advisor_tip_enabled', 'statusline', '3.25.6')).toBe(true);
-    expect(recordFunnelEvent('advisor_tip_disabled', 'statusline', '3.25.6')).toBe(true);
+    expect(recordFunnelEvent('advisor_tip_enabled', 'statusline', '3.25.6')).toBe(false);
+    expect(recordFunnelEvent('advisor_tip_disabled', 'statusline', '3.25.6')).toBe(false);
   });
 });
 
@@ -563,62 +428,7 @@ describe('credit-error classifier (ADR-303, fail-closed)', () => {
 
 // ─── ADR-305/309: events, consent-gated, bucketed ───────────────────────────
 
-describe('funnel events (ADR-305/309)', () => {
-  it('records nothing without telemetry consent', () => {
-    expect(recordFunnelEvent('disclosure_shown', 'statusline', '3.25.6')).toBe(false);
-    expect(fs.existsSync(path.join(stateDir, 'funnel-events.jsonl'))).toBe(false);
-    expect(getFunnelId()).toBeNull();
-  });
-
-  it('with consent: daily buckets only, closed event set, pseudonymous id', () => {
-    recordConsent('telemetry', true, 'test');
-    expect(recordFunnelEvent('signup_opened', 'init', '3.25.6')).toBe(true);
-    const lines = fs.readFileSync(path.join(stateDir, 'funnel-events.jsonl'), 'utf-8').trim().split('\n');
-    const evt = JSON.parse(lines[0]);
-    expect(evt.timestampBucket).toMatch(/^\d{4}-\d{2}-\d{2}$/); // daily, no time
-    expect(evt.pseudonymousId).toMatch(/^[0-9a-f-]{36}$/);
-    expect(Object.keys(evt).sort()).toEqual(
-      ['event', 'pseudonymousId', 'release', 'schemaVersion', 'surface', 'timestampBucket'],
-    );
-    // unknown event names are rejected
-    expect(recordFunnelEvent('exfiltrate_prompts' as never, 'init', 'x')).toBe(false);
-  });
-
-  it('opt-out deletes the id and the queue', () => {
-    recordConsent('telemetry', true, 'test');
-    recordFunnelEvent('signup_opened', 'init', '3.25.6');
-    const id = getFunnelId();
-    expect(id).not.toBeNull();
-    deleteFunnelData();
-    expect(fs.existsSync(path.join(stateDir, 'funnel-events.jsonl'))).toBe(false);
-    expect(fs.existsSync(path.join(stateDir, 'funnel-id.json'))).toBe(false);
-  });
-});
-
 // ─── ADR-302: enrollment gates ──────────────────────────────────────────────
-
-describe('enrollment gates (ADR-302)', () => {
-  it('never offers in CI, with --no-signup, or when funnel is disabled', () => {
-    expect(shouldOfferEnrollment({ noSignup: true, cwd: stateDir })).toBe(false);
-    expect(shouldOfferEnrollment({ noSignup: false, cwd: stateDir, env: { ...process.env, CI: '1' } })).toBe(false);
-    expect(
-      shouldOfferEnrollment({ noSignup: false, cwd: stateDir, env: { ...process.env, RUFLO_FUNNEL: '0' } }),
-    ).toBe(false);
-  });
-
-  it('is one-time: any recorded outcome suppresses future offers', () => {
-    recordEnrollmentOutcome(false);
-    expect(getEnrollmentRecord()?.outcome).toBe('skipped');
-    expect(shouldOfferEnrollment({ noSignup: false, cwd: stateDir })).toBe(false);
-  });
-
-  it('accepting records ONLY the account consent domain', () => {
-    recordEnrollmentOutcome(true);
-    expect(hasConsent('account')).toBe(true);
-    expect(hasConsent('telemetry')).toBe(false);
-    expect(hasConsent('cloud-routing')).toBe(false);
-  });
-});
 
 // ─── environment gates ──────────────────────────────────────────────────────
 
@@ -634,293 +444,11 @@ describe('CI detection', () => {
 
 // ─── generated statusline renderer (defense-in-depth) ──────────────────────
 
-describe('generated statusline promo row', () => {
-  const script = generateStatuslineScript({
-    runtime: { maxAgents: 8 },
-    statusline: { enabled: true },
-  } as never);
-
-  it('embeds the promo renderer with CI and RUFLO_FUNNEL gates', () => {
-    expect(script).toContain('getPromoRow');
-    expect(script).toContain('process.env.CI');
-    expect(script).toContain('RUFLO_FUNNEL');
-  });
-
-  it('re-sanitizes promo text at render time (control chars stripped, capped)', () => {
-    expect(script).toContain('\\u0000-\\u001f');
-    // v3.29.0 replaced the silent `.slice(0, 100)` truncation with a
-    // MAX_LEN + ellipsis path that shows the row was truncated instead
-    // of chopping a word mid-character. Assert both the cap constant AND
-    // the ellipsis suffix are present.
-    expect(script).toContain('MAX_LEN');
-    expect(script).toMatch(/MAX_LEN\s*=\s*100/);
-    expect(script).toContain('…');
-  });
-
-  it('never renders promo styling from payload — colors come from a fixed kind map', () => {
-    // The row is styled by the renderer's own hardcoded color, chosen from the
-    // CLI-supplied `kind` enum (disclosure/promotional/educational). The payload
-    // text itself never provides ANSI — the sanitiser above strips all of it.
-    // The wrapping ALWAYS ends with c.reset so no color leaks into subsequent
-    // Claude Code UI. Guards against a future edit that lets payload styling in.
-    expect(script).toMatch(/promoColor \+ promoRow \+ c\.reset/);
-    expect(script).toMatch(/kind === 'promotional' \? c\.brightPurple/);
-    expect(script).toMatch(/kind === 'educational' \? c\.yellow/);
-    // Default branch stays a renderer-owned color, not a payload field.
-    expect(script).toMatch(/: c\.brightCyan/);
-  });
-
-  it('validates a resolved CLI bin candidate actually has a compiled dist, not just a bin/cli.js on disk', () => {
-    // Claude Code's own plugin marketplace mechanism installs by git clone/pull
-    // with no build step, so ~/.claude/plugins/marketplaces/ruflo is a
-    // source-only checkout by construction: bin/cli.js exists but importing
-    // dist/src/index.js throws MODULE_NOT_FOUND on every real command
-    // (confirmed live). Without checking for the compiled entrypoint too,
-    // resolveCliBinCandidates() picked that doomed candidate every render and
-    // wasted the render's time budget failing before ever reaching the npx
-    // fallback — starving both the promo row and its 20s rotation clock.
-    expect(script).toContain("path.join(path.dirname(p), '..', 'dist', 'src', 'index.js')");
-  });
-});
-
 // ─── ADR-301/305 attribution — network-free fallback discipline ─────────────
 // The funnel row must render correctly even when the API is completely down.
 // These tests pin that invariant.
 
-describe('attributionUrl (ADR-305 measurement, no runtime network)', () => {
-  it('returns the base URL verbatim when it is malformed', () => {
-    // The URL builder must never synthesize a broken analytics endpoint —
-    // a malformed input passes through unchanged so downstream (OSC 8 host
-    // allowlist) can drop it safely.
-    const cases = ['not-a-url', '', 'javascript:evil()', 'ftp://cognitum.one'];
-    for (const bad of cases) {
-      expect(attributionUrl(bad, { medium: 's', campaign: 'c', content: 'x' })).toBe(bad);
-    }
-  });
-
-  it('appends UTM params and preserves any query already on the base URL', () => {
-    const out = attributionUrl('https://cognitum.one/ruflo?foo=1', {
-      medium: 'statusline', campaign: 'disclosure', content: 'test-1',
-    });
-    const parsed = new URL(out);
-    expect(parsed.searchParams.get('foo')).toBe('1');
-    expect(parsed.searchParams.get('utm_source')).toBe('ruflo');
-    expect(parsed.searchParams.get('utm_medium')).toBe('statusline');
-    expect(parsed.searchParams.get('utm_campaign')).toBe('disclosure');
-    expect(parsed.searchParams.get('utm_content')).toBe('test-1');
-  });
-
-  it('does NOT append fid when telemetry consent is absent (privacy default)', () => {
-    // Default test state has no consent grants. fid must not appear.
-    const out = attributionUrl('https://cognitum.one/ruflo', {
-      medium: 'statusline', campaign: 'disclosure', content: 'x',
-    });
-    expect(new URL(out).searchParams.has('fid')).toBe(false);
-  });
-
-  it('emits no network call — attribution is a pure link builder', () => {
-    // Guard: the function must be synchronous and side-effect-free with
-    // respect to the network. If someone later adds fetch/https here, this
-    // test will still pass but the *design* is documented.
-    const before = Date.now();
-    for (let i = 0; i < 1000; i++) {
-      attributionUrl('https://cognitum.one/ruflo', {
-        medium: 'statusline', campaign: 'disclosure', content: String(i),
-      });
-    }
-    const elapsed = Date.now() - before;
-    // 1000 URL builds must be sub-100ms (network calls would be nowhere near).
-    expect(elapsed).toBeLessThan(100);
-  });
-});
-
-describe('getFunnelPromo — API-down fallback discipline', () => {
-  it('generated statusline styles the label as a link and the command as bold-not-underlined', () => {
-    // CTA affordance: the OSC 8 label is wrapped in ANSI underline so terminals
-    // show it as a clickable link even when the OSC 8 hyperlink itself isn't
-    // supported.
-    //
-    // "manage: ruflo settings" is a shell command, not a URL -- a terminal can
-    // never safely execute a command from a click (that would let any
-    // server-served message run arbitrary commands), so it must NEVER be
-    // underlined or OSC-8-wrapped. Instead "ruflo settings" renders bold so it
-    // visually reads as "the important bit to copy/type", not a dead link.
-    const script = generateStatuslineScript({
-      statusline: { enabled: true, style: 'compact' as const },
-      runtime: { maxAgents: 15 },
-    });
-    // v3.29.0: label gets underline styling (still). But the whole row
-    // is now wrapped in ONE OSC 8 hyperlink via wrapWholeRowInHyperlink,
-    // not just the label — every part of the row is a click target.
-    // Label still carries UL_ON/UL_OFF for the underline cue.
-    expect(script).toMatch(/UL_ON \+ label \+ UL_OFF/);
-    expect(script).toContain('wrapWholeRowInHyperlink');
-    // "manage: " connector stays dim.
-    expect(script).toMatch(/DIM_ON \+ manageWord \+ DIM_OFF/);
-    // The command itself is bold + bright-white, never underlined.
-    // v3.29.0 added FG_BRIGHT_WHITE so it visually stands out from the
-    // row's kind-color instead of getting lost in it.
-    expect(script).toMatch(/BOLD_ON \+ FG_BRIGHT_WHITE \+ command \+ FG_DEFAULT \+ BOLD_OFF/);
-    expect(script).not.toMatch(/UL_ON \+ command/);
-    // The split must be on the exact manage-instruction anchor.
-    expect(script).toMatch(/text\.indexOf\(' · manage: '\)/);
-  });
-
-  it('generated statusline emits exactly 3 lines: header, ops, promo', () => {
-    // Claude Code truncates statusline past line 4 with the system guidance
-    // line. The 3-line design puts RuFlo header on line 1, then ops, then
-    // promo — sequence matches order of pushes in the generator source.
-    const script = generateStatuslineScript({
-      statusline: { enabled: true, style: 'compact' as const },
-      runtime: { maxAgents: 15 },
-    });
-    const headerIdx = script.indexOf('lines.push(header)');
-    const opsIdx = script.indexOf("lines.push(opsParts.join(");
-    const promoIdx = script.indexOf('lines.push(promoColor + promoRow');
-    expect(headerIdx).toBeGreaterThan(0);
-    expect(opsIdx).toBeGreaterThan(headerIdx);
-    expect(promoIdx).toBeGreaterThan(opsIdx);
-  });
-
-  it('generated statusline memoizes promo across renders (survives promoless CLI)', () => {
-    // A previously-installed older CLI cached by npx may succeed but omit
-    // the promo field. The memo overlay patches it back in so the row
-    // doesn't blink out mid-session.
-    const script = generateStatuslineScript({
-      statusline: { enabled: true, style: 'compact' as const },
-      runtime: { maxAgents: 15 },
-    });
-    expect(script).toMatch(/PROMO_MEMO_FILE/);
-    expect(script).toMatch(/function readPromoMemo/);
-    expect(script).toMatch(/function overlayMemoPromo/);
-    // Overlay must fire on every path (fresh cache, successful CLI, stale
-    // cache fallback, cold fallback) — grep the call count as a spot check.
-    const overlayCalls = (script.match(/overlayMemoPromo\(/g) || []).length;
-    expect(overlayCalls).toBeGreaterThanOrEqual(4);
-  });
-
-  it('generated statusline script implements stale-while-revalidate for promo row', () => {
-    // The fix for the flicker bug: the promo row must survive CLI hiccups
-    // and cache-expiry-mid-render. readCache() returns { fresh, data } and
-    // getStatuslineData falls back to stale cache when the CLI fails, so
-    // the last known promo persists. This test pins that design in the
-    // generator template so a future edit that breaks the pattern trips CI.
-    const script = generateStatuslineScript({
-      statusline: { enabled: true, style: 'compact' as const },
-      runtime: { maxAgents: 15 },
-    });
-    // Cache reader must expose freshness rather than gating data behind TTL.
-    expect(script).toMatch(/const cache = readCache\(\)/);
-    expect(script).toMatch(/cache\.fresh/);
-    // On CLI failure, must serve stale cache data (with local overlays) not
-    // a bare buildLocalFallback() that would drop the promo field.
-    expect(script).toMatch(/if \(cache\.data\)/);
-    expect(script).toMatch(/applyLocalOverlays\(cache\.data\)/);
-  });
-
-  it('the promo row has its own rotation-cadence freshness check, distinct from the general 60s cache TTL', () => {
-    // Bug report: "the promo area doesn't seem to be rotating every 20
-    // seconds." Root cause: CACHE_TTL_MS (60s, #2337's fix for excessive
-    // CLI re-invocation) let getStatuslineData() skip the CLI call — the
-    // ONLY place the rotation slot is recomputed — for up to 3 whole 20s
-    // rotation slots. A general cache.fresh check alone can never catch
-    // this; it must ALSO check a tighter, rotation-cadence-bound freshness
-    // signal before it's allowed to skip the CLI call.
-    const script = generateStatuslineScript({
-      statusline: { enabled: true, style: 'compact' as const },
-      runtime: { maxAgents: 15 },
-    });
-    expect(script).toMatch(/PROMO_ROTATION_SLOT_MS\s*=\s*20000/);
-    expect(script).toMatch(/promoFresh/);
-    // The early-return that skips the CLI call must require BOTH freshness
-    // signals — cache.fresh alone (the pre-fix bug) must not appear as the
-    // sole guard on that line.
-    expect(script).toMatch(/if \(cache\.fresh && cache\.promoFresh\)/);
-  });
-
-  it('renders the row without touching the network (no fetch import path)', async () => {
-    // The promo module is imported at test module load; if it pulled in a
-    // network library, this stringified module set would carry a fetch/https
-    // reference. This is a design lock — a future edit that adds network
-    // I/O to the render path breaks this test.
-    const promoSrc = await import('node:fs').then((fs) =>
-      fs.readFileSync(new URL('../src/funnel/promo.ts', import.meta.url), 'utf-8'),
-    );
-    expect(promoSrc).not.toMatch(/require\(\s*['"]https?['"]\s*\)/);
-    expect(promoSrc).not.toMatch(/from\s+['"]https?['"]/);
-    expect(promoSrc).not.toMatch(/fetch\s*\(/);
-    expect(promoSrc).not.toMatch(/XMLHttpRequest/);
-  });
-});
-
 // ─── ADR-308 client transport — consent-gated + failure-safe ────────────────
-
-describe('event transport (ADR-308 POST /v1/events)', () => {
-  it('exposes ADR-308 defaults: https endpoint, batch cap, backoff, timeout', () => {
-    expect(DEFAULT_ENDPOINT.startsWith('https://')).toBe(true);
-    expect(MAX_BATCH).toBeGreaterThan(0);
-    expect(MAX_BATCH).toBeLessThanOrEqual(1000);
-    expect(MIN_FLUSH_INTERVAL_MS).toBeGreaterThanOrEqual(10_000);
-    expect(FLUSH_TIMEOUT_MS).toBeGreaterThan(0);
-    expect(FLUSH_TIMEOUT_MS).toBeLessThanOrEqual(10_000); // never stall the CLI
-  });
-
-  it('no-ops without telemetry consent — zero network activity', async () => {
-    // No consent granted in the base test state.
-    const result = await flushEvents({ endpoint: 'https://127.0.0.1:1', now: new Date() });
-    expect(result).toEqual({ flushed: 0, skipped: 'no-consent' });
-  });
-
-  it('rejects non-https endpoints inside postBatch (via consent-gated caller)', async () => {
-    // Grant consent so the transport reaches postBatch, then pass an
-    // http:// endpoint — the module must refuse rather than open a plaintext
-    // connection.
-    recordConsent('telemetry', true, 'test');
-    // Also stage at least one event so we don't short-circuit on empty queue.
-    recordFunnelEvent('disclosure_shown', 'statusline', 'test');
-    const result = await flushEvents({ endpoint: 'http://127.0.0.1:1', force: true, now: new Date() });
-    expect(result.skipped).toMatch(/transport-failed|no-consent/);
-    // On the failed-transport path we expect a status of 0 (never opened).
-    if (result.skipped === 'transport-failed') expect(result.status).toBe(0);
-  });
-});
-
-describe('credit-notifier (ADR-303 out-of-band signal)', () => {
-  it('markCreditExhausted is idempotent — stable `since`', () => {
-    const t0 = new Date('2026-07-10T12:00:00.000Z');
-    markCreditExhausted(t0);
-    const first = readCreditStatus();
-    expect(first.exhausted).toBe(true);
-    expect(first.since).toBe(t0.toISOString());
-    // Second mark must not move the `since` timestamp forward.
-    markCreditExhausted(new Date('2026-07-10T13:00:00.000Z'));
-    const second = readCreditStatus();
-    expect(second.since).toBe(t0.toISOString());
-  });
-
-  it('clearCreditStatus stamps `cleared`, drops the exhausted flag', () => {
-    markCreditExhausted(new Date('2026-07-10T12:00:00.000Z'));
-    clearCreditStatus(new Date('2026-07-10T14:00:00.000Z'));
-    const status = readCreditStatus();
-    expect(status.exhausted).toBe(false);
-    expect(status.cleared).toBe('2026-07-10T14:00:00.000Z');
-  });
-
-  it('creditExhaustedNotice renders humanized "since" copy', () => {
-    markCreditExhausted(new Date('2026-07-10T12:00:00.000Z'));
-    // 3 hours later
-    const notice = creditExhaustedNotice(new Date('2026-07-10T15:00:00.000Z'));
-    expect(notice).not.toBeNull();
-    expect(notice).toContain('Cognitum credits exhausted');
-    expect(notice).toContain('ruflo funnel signup');
-    expect(notice).toContain('3h ago');
-  });
-
-  it('returns null when credit is not exhausted (no surface)', () => {
-    clearCreditStatus();
-    expect(creditExhaustedNotice()).toBeNull();
-  });
-});
 
 // ─── ADR-312/313: rate-limit notifier + sponsored downtime override ────────
 
@@ -1073,68 +601,6 @@ describe('power-saver notifier (ADR-314 §A — manual, self-reported, mirrors r
   });
 });
 
-describe('sponsored-downtime priority override (ADR-313)', () => {
-  it('does not override when the rate-limit flag is unset', () => {
-    seedRemoteMessages([...TEST_DISCLOSURE_POOL, ...TEST_ROTATION_POOL]);
-    const t0 = new Date();
-    recordDisclosureShown(t0);
-    const after = new Date(t0.getTime() + DISCLOSURE_GRACE_MS + 60_000);
-    const row = getFunnelPromo({ interactive: true, cwd: stateDir, now: after });
-    expect(row).not.toBeNull();
-    expect(row!.text).not.toContain('ruflo proxy sponsor');
-  });
-
-  it('shows the enable-CTA when rate-limited without sponsored consent', () => {
-    seedRemoteMessages([...TEST_DISCLOSURE_POOL, ...TEST_ROTATION_POOL]);
-    const t0 = new Date();
-    recordDisclosureShown(t0);
-    const after = new Date(t0.getTime() + DISCLOSURE_GRACE_MS + 60_000);
-    markRateLimited(after);
-    const row = getFunnelPromo({ interactive: true, cwd: stateDir, now: after });
-    expect(row).not.toBeNull();
-    expect(row!.text).toContain('Free Cognitum capacity');
-    expect(row!.text).toContain('manage: ruflo proxy sponsor-enable');
-    expect(displayWidth(row!.text)).toBeLessThanOrEqual(MAX_MESSAGE_COLUMNS);
-  });
-
-  it('shows the active-status line when rate-limited WITH sponsored consent granted', () => {
-    seedRemoteMessages([...TEST_DISCLOSURE_POOL, ...TEST_ROTATION_POOL]);
-    const t0 = new Date();
-    recordDisclosureShown(t0);
-    const after = new Date(t0.getTime() + DISCLOSURE_GRACE_MS + 60_000);
-    markRateLimited(after);
-    recordConsent('sponsored-downtime', true, 'test');
-    const row = getFunnelPromo({ interactive: true, cwd: stateDir, now: after });
-    expect(row).not.toBeNull();
-    expect(row!.text).toContain('Running on sponsored Cognitum capacity');
-    expect(row!.text).toContain('manage: ruflo proxy sponsor-disable');
-    expect(displayWidth(row!.text)).toBeLessThanOrEqual(MAX_MESSAGE_COLUMNS);
-  });
-
-  it('the override preempts rotation even mid-promo-slot', () => {
-    // Regression guard: without the override, a promotional slot would
-    // otherwise render a rotation message here — confirm sponsored wins.
-    seedRemoteMessages([...TEST_DISCLOSURE_POOL, ...TEST_ROTATION_POOL]);
-    const t0 = new Date();
-    recordDisclosureShown(t0);
-    const after = new Date(t0.getTime() + DISCLOSURE_GRACE_MS + 60_000);
-    markRateLimited(after);
-    const row = getFunnelPromo({ interactive: true, cwd: stateDir, now: after });
-    expect(row!.kind).toBe('promotional');
-    expect(TEST_ROTATION_POOL.map((m) => m.text)).not.toContain(row!.text);
-  });
-
-  it('never overrides before the disclosure invariant is satisfied', () => {
-    // ADR-301: no promotional content before disclosure — even a rate-limit
-    // flag must not bypass the first-render disclosure gate.
-    seedRemoteMessages(TEST_DISCLOSURE_POOL);
-    markRateLimited(new Date());
-    const row = getFunnelPromo({ interactive: true, cwd: stateDir });
-    expect(row).not.toBeNull();
-    expect(row!.kind).toBe('disclosure');
-  });
-});
-
 describe('local insight ticker (computeLocalInsights / selectLocalInsight)', () => {
   it('returns nothing when no context signal applies', () => {
     expect(computeLocalInsights({})).toEqual([]);
@@ -1256,75 +722,72 @@ describe('local insight ticker (computeLocalInsights / selectLocalInsight)', () 
   });
 });
 
-describe('local insight ticker integration with getFunnelPromo (ADR §5)', () => {
-  it('never shows an insight when localInsights context is omitted (backward compatible)', () => {
-    seedRemoteMessages([...TEST_DISCLOSURE_POOL, ...TEST_ROTATION_POOL]);
-    const t0 = new Date();
-    recordDisclosureShown(t0);
-    // slot 2 (of 5) — the reserved insight slot — but no context passed.
-    const insightSlotTime = new Date(t0.getTime() + DISCLOSURE_GRACE_MS + 60_000 + 2 * ROTATION_SLOT_MS);
-    const row = getFunnelPromo({ interactive: true, cwd: stateDir, now: insightSlotTime });
-    expect(row).not.toBeNull();
-    expect(row!.kind).not.toBe('insight');
+// ─── Fork removal guards (GitHub issue #11) ─────────────────────────────────
+//
+// These are the tests that must never be "fixed" by relaxing them. Everything
+// above verifies retained behaviour; this describe verifies ABSENCE, which is
+// the property an upstream rebase is most likely to silently undo.
+
+describe('fork removal guards — the funnel stays gone', () => {
+  const funnelDir = path.resolve(
+    path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')),
+    '../src/funnel',
+  );
+
+  it('deleted modules are still deleted', () => {
+    // attribution.ts built funnel.ruv.io/v1/click redirect URLs.
+    // event-transport.ts POSTed the local event queue to /v1/events.
+    // credit-notifier.ts was orphaned when that transport went.
+    for (const gone of ['attribution.ts', 'event-transport.ts', 'credit-notifier.ts']) {
+      expect(fs.existsSync(path.join(funnelDir, gone)), gone + ' must stay deleted').toBe(false);
+    }
   });
 
-  it('shows the insight on its reserved slot when context signals one', () => {
-    seedRemoteMessages([...TEST_DISCLOSURE_POOL, ...TEST_ROTATION_POOL]);
-    const t0 = new Date(0);
-    recordDisclosureShown(t0);
-    const after = new Date(t0.getTime() + DISCLOSURE_GRACE_MS + 60_000);
-    // Find the next slot boundary where slot % 5 === 2 (promo.ts's reserved phase).
-    let probe = after;
-    while (Math.floor(probe.getTime() / ROTATION_SLOT_MS) % 5 !== 2) {
-      probe = new Date(probe.getTime() + ROTATION_SLOT_MS);
+  it('no module under src/funnel/ can make an outbound request', () => {
+    // Structural, not behavioural: a module that never imports an HTTP client
+    // cannot regress into making a call. This is the guard that would have
+    // caught the original subsystem.
+    //
+    // `local-signals.ts` is the one allowed `child_process` user: it shells
+    // out to local `git` and `sqlite3` to read working-tree and swarm state
+    // for the statusline. That is a local read, not an outbound request, and
+    // it is explicitly one of the non-promotional pieces this fork keeps.
+    const SUBPROCESS_ALLOWED = new Set(['local-signals.ts']);
+
+    for (const file of fs.readdirSync(funnelDir).filter((f) => f.endsWith('.ts'))) {
+      const code = fs
+        .readFileSync(path.join(funnelDir, file), 'utf-8')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/^\s*\/\/.*$/gm, '');
+      expect(code, file + ' must not import an HTTP client').not.toMatch(/from '(node:)?https?'/);
+      expect(code, file + ' must not call fetch()').not.toMatch(/\bfetch\s*\(/);
+      expect(code, file + ' must not reference ruv.io').not.toContain('ruv.io');
+      if (!SUBPROCESS_ALLOWED.has(file)) {
+        expect(code, file + ' must not spawn a subprocess').not.toMatch(/child_process/);
+      }
     }
-    const row = getFunnelPromo({
-      interactive: true,
-      cwd: stateDir,
-      now: probe,
-      localInsights: { security: { status: 'ISSUES', findings: 1, cvesFixed: 0, totalCves: 0 } },
-    });
-    expect(row).not.toBeNull();
-    expect(row!.kind).toBe('insight');
-    expect(row!.text).toContain('security finding');
   });
 
-  it('falls through to normal rotation on the insight slot when nothing is actionable', () => {
-    seedRemoteMessages([...TEST_DISCLOSURE_POOL, ...TEST_ROTATION_POOL]);
-    const t0 = new Date(0);
-    recordDisclosureShown(t0);
-    const after = new Date(t0.getTime() + DISCLOSURE_GRACE_MS + 60_000);
-    let probe = after;
-    while (Math.floor(probe.getTime() / ROTATION_SLOT_MS) % 5 !== 2) {
-      probe = new Date(probe.getTime() + ROTATION_SLOT_MS);
-    }
-    const row = getFunnelPromo({
-      interactive: true,
-      cwd: stateDir,
-      now: probe,
-      localInsights: { security: { status: 'CLEAN', findings: 0, cvesFixed: 0, totalCves: 0 } },
-    });
-    expect(row).not.toBeNull();
-    expect(row!.kind).not.toBe('insight'); // no actionable insight -> normal rotation
+  it('getFunnelPromo returns null under every condition that used to show a row', () => {
+    // Consent granted, not CI, interactive, disclosure already accepted —
+    // upstream's happy path. Still nothing.
+    recordConsent('telemetry', true, 'test');
+    recordConsent('sponsored-downtime', true, 'test');
+    recordDisclosureShown(new Date(0));
+    seedRemoteMessages(TEST_ROTATION_POOL);
+    const later = new Date(DISCLOSURE_GRACE_MS * 4);
+    expect(getFunnelPromo({ interactive: true, now: later })).toBeNull();
+    expect(getFunnelPromo({ interactive: true, now: later, localInsights: { gitUncommittedCount: 999 } })).toBeNull();
   });
 
-  it('the ADR-313 sponsored override still wins even on the insight slot', () => {
-    seedRemoteMessages([...TEST_DISCLOSURE_POOL, ...TEST_ROTATION_POOL]);
-    const t0 = new Date(0);
-    recordDisclosureShown(t0);
-    const after = new Date(t0.getTime() + DISCLOSURE_GRACE_MS + 60_000);
-    let probe = after;
-    while (Math.floor(probe.getTime() / ROTATION_SLOT_MS) % 5 !== 2) {
-      probe = new Date(probe.getTime() + ROTATION_SLOT_MS);
-    }
-    markRateLimited(probe);
-    const row = getFunnelPromo({
-      interactive: true,
-      cwd: stateDir,
-      now: probe,
-      localInsights: { security: { status: 'ISSUES', findings: 1, cvesFixed: 0, totalCves: 0 } },
-    });
-    expect(row!.text).toContain('Cognitum capacity');
-    expect(row!.kind).not.toBe('insight');
+  it('the remote message transport is inert in both directions', async () => {
+    seedRemoteMessages(TEST_ROTATION_POOL);
+    expect(getRemoteMessages()).toHaveLength(0);
+    const result = await refreshRemoteMessages({ force: true });
+    expect(result.refreshed).toBe(false);
+  });
+
+  it('the enrollment upsell is never offered', () => {
+    expect(shouldOfferEnrollment({ noSignup: false })).toBe(false);
   });
 });

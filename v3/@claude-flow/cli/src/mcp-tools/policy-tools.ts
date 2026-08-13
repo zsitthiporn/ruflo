@@ -5,7 +5,7 @@ import type {
   PolicyRule,
   PolicyState,
 } from '@claude-flow/security';
-import type { MCPTool } from './types.js';
+import { type MCPTool, getProjectCwd } from './types.js';
 import {
   evaluatePolicyRequest,
   issuePolicyApproval,
@@ -16,6 +16,14 @@ import {
   upsertPolicyRule,
   verifyPolicyLedger,
 } from '../services/policy-runtime.js';
+
+// Issue #10: these handlers each independently re-derive projectRoot from
+// context, rather than reusing whatever authorizeMcpTool already resolved
+// for the same call. Before this fix that fallback was raw process.cwd() —
+// so a policy-admin MCP call could be AUTHORIZED against the correctly
+// pinned CLAUDE_FLOW_CWD root and then have its handler WRITE (rule upsert,
+// budget set, approval issue/revoke) against a different, wrong root. Same
+// fallback fix as policy-runtime.ts: getProjectCwd() instead of process.cwd().
 
 function requireAuthenticatedAdministrator(
   context: Record<string, unknown> | undefined,
@@ -39,7 +47,7 @@ export const policyTools: MCPTool[] = [
     },
     handler: async (input, context) => evaluatePolicyRequest(
       input.request as PolicyRequest,
-      typeof context?.projectRoot === 'string' ? context.projectRoot : process.cwd(),
+      typeof context?.projectRoot === 'string' ? context.projectRoot : getProjectCwd(),
     ),
   },
   {
@@ -51,7 +59,7 @@ export const policyTools: MCPTool[] = [
       properties: {},
     },
     handler: async (_input, context) => {
-      const root = typeof context?.projectRoot === 'string' ? context.projectRoot : process.cwd();
+      const root = typeof context?.projectRoot === 'string' ? context.projectRoot : getProjectCwd();
       const state = loadPolicyState(root);
       return {
         version: state.version,
@@ -81,7 +89,7 @@ export const policyTools: MCPTool[] = [
     },
     handler: async (input, context) => {
       requireAuthenticatedAdministrator(context);
-      const root = typeof context?.projectRoot === 'string' ? context.projectRoot : process.cwd();
+      const root = typeof context?.projectRoot === 'string' ? context.projectRoot : getProjectCwd();
       await upsertPolicyRule(input.rule as PolicyRule, root);
       if (input.mode) await setPolicyMode(input.mode as PolicyState['mode'], root);
       return { success: true, ruleId: (input.rule as PolicyRule).id, mode: loadPolicyState(root).mode };
@@ -103,7 +111,7 @@ export const policyTools: MCPTool[] = [
       const budget = input.budget as BudgetLimit;
       await setPolicyBudget(
         budget,
-        typeof context?.projectRoot === 'string' ? context.projectRoot : process.cwd(),
+        typeof context?.projectRoot === 'string' ? context.projectRoot : getProjectCwd(),
       );
       return { success: true, budgetId: budget.id };
     },
@@ -125,7 +133,7 @@ export const policyTools: MCPTool[] = [
         & { uses?: number; issuedAt?: number };
       return issuePolicyApproval(
         { ...requested, issuedBy: context.principalId },
-        typeof context.projectRoot === 'string' ? context.projectRoot : process.cwd(),
+        typeof context.projectRoot === 'string' ? context.projectRoot : getProjectCwd(),
         (issuer) => issuer === context.principalId,
       );
     },
@@ -146,7 +154,7 @@ export const policyTools: MCPTool[] = [
       return {
         success: await revokePolicyApproval(
           String(input.approvalId),
-          typeof context.projectRoot === 'string' ? context.projectRoot : process.cwd(),
+          typeof context.projectRoot === 'string' ? context.projectRoot : getProjectCwd(),
         ),
       };
     },

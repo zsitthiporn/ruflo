@@ -983,19 +983,54 @@ memory_search_unified({ query: "authentication security", limit: 5 })
 
 ## Publishing to npm
 
-> **STOP — plain `npm publish` now ships broken packages.** As of 2026-08-14 all
-> intra-workspace dependencies use pnpm's `workspace:*` protocol, so that our own
-> source can never be silently replaced by a newer registry build (the substitution
-> was live, not hypothetical — see zsitthiporn/ruflo#8). Only **pnpm** rewrites
-> `workspace:*` into a real version at pack time. `npm publish` does not: it would
-> publish a `package.json` containing the literal string `"workspace:*"`, which no
-> installer can resolve.
+> **STOP — this procedure is rewritten for `workspace:*` but still unexecuted.**
+> As of 2026-08-14 all intra-workspace dependencies use pnpm's `workspace:*`
+> protocol, so that our own source can never be silently replaced by a newer
+> registry build (the substitution was live, not hypothetical — see
+> zsitthiporn/ruflo#8). Only **pnpm** rewrites `workspace:*` into a real version
+> at pack/publish time; `npm publish` does not — it would ship a `package.json`
+> containing the literal string `"workspace:*"`, which no installer can resolve.
+> The commands below have been corrected to use `pnpm publish` for
+> `@claude-flow/cli` (the only one of the three release packages whose own
+> manifest carries `workspace:*` — verified by grep of all three package.json
+> files). **Three things remain unproven because proving them requires an
+> actual publish run, which no one has done since this rewrite:**
 >
-> Every `npm publish` in the procedure below must become `pnpm publish`, or
-> `pnpm pack` followed by `npm publish <tarball>`. `scripts/smoke-cli-npx-install.mjs`
-> already documents this requirement. **The commands below have not been rewritten
-> yet — treat this section as accurate about intent and stale about the exact
-> command until someone does a publish run and fixes them.**
+> 1. **`@claude-flow/cli`'s own dependency completeness is unverified.** Its
+>    `dependencies` include `workspace:*` for `cli-core`, `mcp`, `neural`, and
+>    `shared`, and its `optionalDependencies` include `workspace:*` for
+>    `memory` — none of these five are in its `bundleDependencies` (only
+>    `codex`, `plugin-agent-federation`, `security` are — compare
+>    `v3/@claude-flow/cli/package.json:99-134` against its `bundleDependencies`
+>    array). `pnpm publish` will rewrite each to an exact pinned version taken
+>    from that sub-package's own current `version` field, and **those exact
+>    versions already exist on the public npm registry** (confirmed via
+>    `npm view @claude-flow/shared@3.0.0-alpha.8 version` etc. on 2026-08-14) —
+>    so `npm install @claude-flow/cli` would pull those five from the registry,
+>    not from this fork's source, with no guarantee the registry copies match
+>    current local content. This is the same class of risk `workspace:*` was
+>    adopted to close, one level deeper than where it was closed. Whether to
+>    extend `scripts/stage-internal-runtime-bundles.mjs`'s bundling to cover
+>    these five, or bump-and-republish them each release, or something else, is
+>    a design decision for the lead — not something this doc pass can resolve.
+> 2. **The root `claude-flow` tarball embeds two raw, unrewritten
+>    `workspace:*` manifests.** Its `files` allowlist copies
+>    `v3/@claude-flow/cli/package.json` and `v3/@claude-flow/guidance/package.json`
+>    byte-for-byte (`package.json:30,39`) — a different, simpler mechanism than
+>    `stageInternalRuntimeBundles`'s dependency-stripping bundler, and one that
+>    never touches the `workspace:*` strings. A grep of `v3/@claude-flow/cli/src`
+>    found nothing that reads `.dependencies` from an embedded `package.json` at
+>    runtime, so this looks inert, but it is not proven safe.
+> 3. **The granular npm token's "confirmed end-to-end" history (below) predates
+>    the pnpm switch.** `NPM_CONFIG_USERCONFIG` is honored by pnpm the same way
+>    as npm (documented at pnpm.io/npmrc), but the token has only ever been
+>    exercised against plain `npm publish`, never against `pnpm publish`.
+>
+> Gate the first real publish on `node scripts/smoke-cli-npx-install.mjs`
+> passing (it already packs via `pnpm pack` and asserts the installed CLI runs —
+> see `scripts/smoke-cli-npx-install.mjs:16,47-64` — though note it checks
+> installability, not that the resolved sub-packages are *this fork's* content,
+> so it would not by itself catch finding 1 above).
 >
 > This fork does not currently publish anything, which is why the change was made
 > anyway: correctness of what we run beat convenience of a release path we do not use.
@@ -1015,19 +1050,41 @@ memory_search_unified({ query: "authentication security", limit: 5 })
 - The normal public release train is exactly THREE packages:
   `@claude-flow/cli`, `claude-flow`, and `ruflo`.
 - Internal `@claude-flow/*` components are bundled into the public artifacts;
-  do not publish them standalone as part of the normal release.
+  do not publish them standalone as part of the normal release. **This rule is
+  currently contradicted by `@claude-flow/cli`'s own manifest** — see stop-notice
+  item 1 above; `cli-core`/`mcp`/`neural`/`shared`/`memory` are declared as
+  ordinary (non-bundled) `workspace:*` dependencies, which is exactly "publish
+  standalone" once `pnpm` resolves them. Flagging, not fixing — lead's call.
+- Only `@claude-flow/cli` needs the pnpm-based publish below — grep of all three
+  release manifests (`v3/@claude-flow/cli/package.json`, root `package.json`,
+  `ruflo/package.json`) found `workspace:*` only in the CLI's. `claude-flow`
+  (root) and `ruflo` keep plain `npm publish`; their own `prepublishOnly`
+  scripts (`scripts/prepare-root-publish.mjs`, `ruflo/scripts/prepare-publish.mjs`)
+  do not touch workspace-protocol dependencies.
 - MUST update ALL dist-tags for ALL THREE packages after publishing (latest + alpha + v3alpha all point to the same version)
 - Publish order: `@claude-flow/cli` first, then `claude-flow` (umbrella), then `ruflo` (alias umbrella)
 - MUST run verification for ALL THREE before telling user publishing is complete
 - Run `node scripts/audit-umbrella-version-lockstep.mjs` before packing or
-  publishing.
+  publishing. Unaffected by `workspace:*` — it only reads each manifest's
+  `version` field and ruflo's ordinary semver dependency range on
+  `@claude-flow/cli`, never a workspace-protocol specifier.
 - Publish from a clean reviewed commit/tag-equivalent worktree. Do not ship
-  unrelated uncommitted changes.
+  unrelated uncommitted changes. `pnpm publish` (used for `@claude-flow/cli`,
+  below) enforces a stricter version of this itself by default — it refuses to
+  run unless the branch is `main`/`master`, the tree is clean, and the branch is
+  up to date with its remote (pnpm.io/cli/publish). That lines up with this rule
+  when releasing from `main`; if a release ever comes from a detached HEAD or a
+  tag-equivalent worktree that isn't tracking a remote branch, add
+  `--no-git-checks` rather than fighting the check.
 - A fresh worktree has two separate dependency trees to install before anything
   builds: `npm install` at repo root (npm workspaces), AND `pnpm install` inside
   `v3/` (a separate pnpm workspace — root `prepare-root-publish.mjs` shells out to
   `pnpm --filter` to build `v3/@claude-flow/{shared,hooks,guidance}`, which fails
-  with `spawn ENOENT` on `tsc` if `v3/node_modules` was never populated).
+  with `spawn ENOENT` on `tsc` if `v3/node_modules` was never populated). This
+  same worktree needs `pnpm` itself available for the CLI's publish step — if
+  bare `pnpm` isn't on PATH, use `corepack pnpm@8.15.0 publish` the way
+  `prepare-root-publish.mjs:9-27` already does, rather than assuming a global
+  install.
 - Use the existing authenticated `ruvnet` npm session. Do not replace it with a
   token from another GCP project.
 
@@ -1043,7 +1100,13 @@ granular access token ("ruflo publishjing", expires 2026-10-28) with
 a permissions probe): `npm publish` for `@claude-flow/cli` succeeded via this
 token with zero OTP/WebAuthn prompt, and
 `npm dist-tag add` against both a scoped (`@claude-flow/cli`) and unscoped
-(`claude-flow`) package also went through with no prompt.
+(`claude-flow`) package also went through with no prompt. **That confirmation
+predates the `workspace:*` switch** — it exercised `npm publish`, not
+`pnpm publish`. `NPM_CONFIG_USERCONFIG` is honored by pnpm the same way as npm
+(pnpm.io/npmrc: "the npm-style `NPM_CONFIG_USERCONFIG` variable is also honored
+as a fallback"), so the token mechanics below should carry over unchanged for
+`@claude-flow/cli`'s `pnpm publish` — but that combination itself is unproven
+until it's actually run once.
 
 **Why the earlier `NPM_TOKEN` version failed:** versions 1/2 of that secret
 were older classic automation tokens, and npm has been restricting tokens that
@@ -1059,7 +1122,8 @@ is the WebAuthn dance below — but try this path first every time.
 gcloud secrets versions access latest --secret=NPM_TOKEN --project=ruv-dev > /tmp/.npmrc-publish-raw
 printf '//registry.npmjs.org/:_authToken=%s\n' "$(cat /tmp/.npmrc-publish-raw)" > /tmp/.npmrc-publish
 rm -f /tmp/.npmrc-publish-raw
-NPM_CONFIG_USERCONFIG=/tmp/.npmrc-publish npm publish   # from the package dir, with signing-key env vars for @claude-flow/cli
+# @claude-flow/cli: NPM_CONFIG_USERCONFIG=/tmp/.npmrc-publish pnpm publish   (workspace:* — see below)
+# claude-flow and ruflo: NPM_CONFIG_USERCONFIG=/tmp/.npmrc-publish npm publish   (no workspace:* deps — unaffected)
 NPM_CONFIG_USERCONFIG=/tmp/.npmrc-publish npm dist-tag add <pkg>@<version> alpha
 NPM_CONFIG_USERCONFIG=/tmp/.npmrc-publish npm dist-tag add <pkg>@<version> v3alpha
 shred -u /tmp/.npmrc-publish 2>/dev/null || rm -f /tmp/.npmrc-publish   # ALWAYS clean up, same discipline as the signing key
@@ -1073,7 +1137,10 @@ approve a WebAuthn browser prompt):
    two-factor authentication for write actions" (narrows to auth-only, not a
    full 2FA disable), then runs `npm login` in their own terminal to refresh
    the session under the new setting.
-2. Agent can then run `npm publish` directly via Bash with no further prompt.
+2. Agent can then run the publish command directly via Bash with no further
+   prompt — `pnpm publish` for `@claude-flow/cli`, `npm publish` for
+   `claude-flow` and `ruflo` (see "Only `@claude-flow/cli` needs the
+   pnpm-based publish" above).
 3. **`npm dist-tag add` still requires a fresh WebAuthn approval PER CALL**
    regardless of the write-2FA setting — 6 individual browser approvals for a
    3-package release (alpha + v3alpha × 3), not 1. Tell the human up front.
@@ -1085,38 +1152,72 @@ approve a WebAuthn browser prompt):
   telling the user publishing succeeded, same reasoning: a mid-publish approval
   that never gets answered fails silently from an agent's point of view.
 
-**Helpers signing key (required for `@claude-flow/cli` publish):** `npm publish`'s
-`prepublishOnly` runs `scripts/sign-helpers.mjs`, which needs a private key to sign
-`.claude/helpers/helpers.manifest.json`. The secret lives in GCP Secret Manager in the
-**`ruv-dev`** project (not `cognitum-20260110` or `claude-flow` — checked both, not there),
-secret name `ruflo-helpers-signing-key`:
+**Helpers signing key (required for `@claude-flow/cli` publish) — CURRENT KEY
+ROTATED 2026-08-14, now fork-owned and local, not GCP:** the publish command's
+`prepublishOnly` runs `scripts/prepare-publish.mjs` (not `sign-helpers.mjs`
+directly — `prepare-publish.mjs` builds, stages, then chains
+`generate-catalog-manifest.mjs` → `sign-helpers.mjs` → `verify-helpers.mjs`,
+confirmed at `v3/@claude-flow/cli/scripts/prepare-publish.mjs:42-55`).
+`sign-helpers.mjs` needs a private key to sign `.claude/helpers/helpers.manifest.json`.
+
+**This matters for which pnpm command to use:** `pnpm publish` runs
+`prepublishOnly` (confirmed: pnpm.io/cli/publish lists `prepublishOnly` in its
+lifecycle-script order); `pnpm pack` does **not** (confirmed: pnpm.io/cli/pack
+lists only `prepack`/`prepare`/`postpack`). That is the concrete reason this
+section uses `pnpm publish` as the primary command below rather than
+`pnpm pack` + `npm publish <tarball>` — the pack-only path would silently skip
+the build/sign/verify chain unless someone remembered to run
+`prepare-publish.mjs` by hand first.
+
+**As of today, the fork's active key is a fork-owned Ed25519 pair with the
+private half at `~/.ruflo/helpers-signing.key`** — no GCP involved. This is
+exactly `sign-helpers.mjs`'s own local-file default (resolution order,
+confirmed at `v3/@claude-flow/cli/scripts/sign-helpers.mjs:9-16,71`: (1) GCP
+Secret Manager via `RUFLO_HELPERS_SIGNING_SECRET`, (2)
+`RUFLO_HELPERS_SIGNING_KEY=<pem-path>`, (3) `~/.ruflo/helpers-signing.key`),
+so publishing needs **no signing-specific env vars at all** now:
 
 ```bash
 cd v3/@claude-flow/cli
-RUFLO_HELPERS_SIGNING_SECRET=ruflo-helpers-signing-key RUFLO_HELPERS_SIGNING_PROJECT=ruv-dev \
-  npm publish
+pnpm publish   # prepublishOnly finds the key at ~/.ruflo/helpers-signing.key by default
+# override only if the key ever moves: RUFLO_HELPERS_SIGNING_KEY=<path> pnpm publish
 ```
 
-(`ruv-dev` also holds `ruflo-config-signing-key`; do not replace the existing
-authenticated npm session with a token from another project.)
+`sign-helpers.mjs`'s own header comment still calls the GCP path "PREFERRED for
+CI/publish" (`v3/@claude-flow/cli/scripts/sign-helpers.mjs:10`) — that is
+upstream's framing and is stale for this fork now that the active key lives
+locally; it is outside this section's ownership to edit (the script lives
+under `v3/@claude-flow/cli/scripts/`, not repo-root `scripts/`) and is reported
+here rather than changed.
 
-**Handling the signing key without leaking it (learned 2026-07-14, hard way):**
-an earlier Windows path invoked `gcloud` without its required `.cmd` suffix. The
-fallback command printed the PEM into captured tool output and a session transcript.
-GCP secret v1 was destroyed and a fresh v2 was rotated in (commit 0052b1b06 /
-PR #2673). `sign-helpers.mjs` now selects `gcloud.cmd` on Windows and supports a
-stdin-only fallback. **Rules:**
-- NEVER invoke `gcloud secrets versions access` in a way that lets the payload reach
-  tool output. Use the built-in `RUFLO_HELPERS_SIGNING_SECRET` path above, or pipe
-  directly into the signer:
-  `gcloud secrets versions access latest --secret=ruflo-helpers-signing-key --project=ruv-dev | node scripts/sign-helpers.mjs --stdin-key`.
+**History — the GCP-era incident and its rules (learned 2026-07-14, hard way,
+kept for when the GCP path is ever used again — as a fallback, by upstream, or
+by a future rotation back):** an earlier Windows path invoked `gcloud` without
+its required `.cmd` suffix. The fallback command printed the PEM into captured
+tool output and a session transcript. GCP secret v1 was destroyed and a fresh
+v2 was rotated in (commit 0052b1b06 / PR #2673). `sign-helpers.mjs` now selects
+`gcloud.cmd` on Windows and supports a stdin-only fallback. **The no-leak rules
+below still apply verbatim to the local-file key just as they did to the GCP
+secret — the failure mode is the same (a PEM landing in captured shell output
+or a transcript) regardless of where the key is stored:**
+- NEVER invoke `gcloud secrets versions access` (GCP path) or `cat`/`echo` the
+  local key file (`~/.ruflo/helpers-signing.key`, current path) in a way that
+  lets the payload reach tool output. For the GCP path, pipe directly into the
+  signer instead of capturing it: `gcloud secrets versions access latest
+  --secret=ruflo-helpers-signing-key --project=ruv-dev | node
+  scripts/sign-helpers.mjs --stdin-key`. For the local-file path, just let
+  `sign-helpers.mjs` read the file itself (its default behavior) — never pipe
+  it through an intermediate command whose output you or a tool might capture.
 - `--stdin-key` refuses interactive entry, validates Ed25519 key type, and never
-  echoes parser input. A local file via `RUFLO_HELPERS_SIGNING_KEY` remains the
-  air-gapped fallback.
-- If a rotation IS needed, keep the private half in `~/.ruflo/helpers-signing.key`
-  only, print ONLY the public half (via `Ed25519 pub export` from Node crypto), upload
-  new private via `gcloud secrets versions add … --data-file=`, then
-  `gcloud secrets versions destroy <old>` to make the old irrecoverable.
+  echoes parser input.
+- If a rotation is needed going forward: generate the new pair, keep the
+  private half in `~/.ruflo/helpers-signing.key` only (this is now the
+  primary path, not a fallback), print ONLY the public half (via `Ed25519 pub
+  export` from Node crypto) for updating `RUFLO_HELPERS_PUBKEY` in
+  `src/init/helper-signing.ts`, and securely delete the old private key file.
+  The GCP `gcloud secrets versions add … --data-file=` / `gcloud secrets
+  versions destroy <old>` steps only apply if a rotation ever moves the key
+  back to GCP.
 
 **Windows `prepublishOnly` failure (learned 2026-07-14):** the CLI's `prepublishOnly`
 chain (`cp ../../../README.md ./README.md && rm -rf plugins && mkdir -p plugins && cp -r ...`)
@@ -1128,6 +1229,23 @@ workarounds until the script is rewritten in cross-platform Node:
    doesn't always take effect on Windows depending on npm version.
 Option 1 is what worked for v3.29.0. Track proper fix in ruvnet/ruflo issue for
 cross-platform prepublish.
+
+**Likely fixed 2026-07-16, kept here as history and flagged, not deleted:**
+commit `72875da93` ("chore(release): prepare stable Ruflo 3.32.1") replaced
+that inline shell chain with `"prepublishOnly": "node scripts/prepare-publish.mjs"`
+(`v3/@claude-flow/cli/package.json:90`), and the current script uses only
+cross-platform `node:fs/promises` (`cp`, `mkdir`, `rm`) — no `mkdir -p` or
+`cp -r` shell syntax remains (`v3/@claude-flow/cli/scripts/prepare-publish.mjs`).
+This makes the specific POSIX-shell failure described above look resolved, but
+it has not been re-verified by an actual Windows publish since the fix landed —
+treat it as probably-fixed, not confirmed-fixed, until someone runs it.
+**If the Windows failure ever recurs anyway, do NOT reuse workarounds 1 or 2
+above verbatim for `@claude-flow/cli`** — both end in plain `npm publish`,
+which under `workspace:*` ships the exact broken package this section's stop
+notice exists to prevent. Any future Windows workaround for the CLI must still
+end in `pnpm publish` (or `corepack pnpm@8.15.0 publish`), with
+`--ignore-scripts` only ever paired with having run `prepare-publish.mjs`
+manually first.
 
 **Concurrent-session helper corruption (real, observed, be paranoid):** multiple Claude Code
 sessions can have their own `npm exec @claude-flow/cli@latest mcp start` MCP server running
@@ -1141,30 +1259,41 @@ content, mid-session, with no warning. Observed live 2026-07-13: this happened *
 one publish flow, once right after a manual revert and once right after signing (silently
 invalidating a freshly-signed manifest). **Mitigation:** never trust the on-disk state of
 those files between tool calls — `git diff --stat` them immediately before any `git add`/
-`sign-helpers.mjs`/`npm publish` step, `git checkout HEAD --` revert if dirty, and chain
+`sign-helpers.mjs`/publish step, `git checkout HEAD --` revert if dirty, and chain
 revert → sign → verify → add → commit as ONE bash invocation (`&&`-joined) to minimize the
-race window. `npm publish`'s own `prepublishOnly` re-signs fresh at pack time regardless, so
-what matters is the on-disk state at the *exact moment* `npm publish` runs, not before.
+race window. The publish command's own `prepublishOnly` re-signs fresh at pack/publish time
+regardless (`pnpm publish` runs it same as `npm publish` did — see the pnpm lifecycle-script
+note above), so what matters is the on-disk state at the *exact moment* the publish command
+runs, not before.
 
 ```bash
 # Replace 3.7.1 below with your chosen stable version (patch/minor/major per the rules above)
+# UNEXECUTED — see the stop notice at the top of this section before the first real run.
 
-# STEP 1: Build and publish @claude-flow/cli
+# STEP 1: Build and publish @claude-flow/cli — the only one of the three with
+# workspace:* in its own manifest, so this is the only step that needs pnpm.
 cd v3/@claude-flow/cli
-npm version 3.7.1 --no-git-tag-version
-npm run build
-npm publish                              # default tag is `latest` — no --tag flag
-npm dist-tag add @claude-flow/cli@3.7.1 alpha     # historical compat
+npm version 3.7.1 --no-git-tag-version    # only edits the "version" field — unaffected by workspace:*, npm or pnpm both fine
+npm run build                             # optional fail-fast: prepublishOnly rebuilds anyway (prepare-publish.mjs), but catches errors before the network call
+pnpm publish                              # NOT `pnpm pack` — pack skips prepublishOnly (build/sign/verify chain), publish does not. Default tag `latest`; no --tag flag.
+# If `pnpm` isn't on PATH: corepack pnpm@8.15.0 publish   (repo precedent: scripts/prepare-root-publish.mjs:9-27)
+# If publishing from a detached/tag-equivalent worktree pnpm's git-checks would reject: pnpm publish --no-git-checks
+npm dist-tag add @claude-flow/cli@3.7.1 alpha     # historical compat — dist-tag is a registry-side op, workspace-blind, unaffected regardless of publisher tool
 npm dist-tag add @claude-flow/cli@3.7.1 v3alpha   # historical compat
 
-# STEP 2: Publish claude-flow umbrella
-cd /Users/cohen/Projects/ruflo                    # or your repo root
+# STEP 2: Publish claude-flow umbrella — no workspace:* in this manifest, plain npm publish is correct.
+# CAVEAT (stop-notice item 2, unproven): this tarball's "files" allowlist embeds a raw copy of
+# v3/@claude-flow/cli/package.json and v3/@claude-flow/guidance/package.json (package.json:30,39),
+# which still carry literal "workspace:*" on disk — pnpm's rewrite in Step 1 does not touch them.
+cd <repo root>                            # e.g. D:\Project\ME\Ruflo
 npm version 3.7.1 --no-git-tag-version
 npm publish
 npm dist-tag add claude-flow@3.7.1 alpha
 npm dist-tag add claude-flow@3.7.1 v3alpha
 
 # STEP 3: Publish ruflo wrapper (CRITICAL — DON'T FORGET — this is what users run)
+# No workspace:* in this manifest either; prepublishOnly here is a trivial README copy
+# (ruflo/scripts/prepare-publish.mjs) — plain npm publish is correct.
 cd ruflo
 npm version 3.7.1 --no-git-tag-version
 npm publish

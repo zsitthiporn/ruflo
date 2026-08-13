@@ -79,13 +79,26 @@ echo "🔍 Running Ruflo pre-commit checks..."
 # Get staged files
 STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM)
 
+# Resolve a LOCALLY-INSTALLED cli. Deliberately no npx fallback: npx would
+# download and execute the published upstream package, which is not this
+# fork's code. With neither binary on PATH we skip validation rather than
+# reach outside the project — the whole hook is best-effort anyway.
+RUFLO_BIN=""
+if command -v ruflo >/dev/null 2>&1; then
+  RUFLO_BIN="ruflo"
+elif command -v claude-flow >/dev/null 2>&1; then
+  RUFLO_BIN="claude-flow"
+fi
+
 # Run validation for each staged file
-for FILE in $STAGED_FILES; do
-  if [[ "$FILE" =~ \\.(ts|js|tsx|jsx)$ ]]; then
-    echo "  Validating: $FILE"
-    npx @claude-flow/cli hooks pre-edit --file "$FILE" --validate-syntax 2>/dev/null || true
-  fi
-done
+if [ -n "$RUFLO_BIN" ]; then
+  for FILE in $STAGED_FILES; do
+    if [[ "$FILE" =~ \\.(ts|js|tsx|jsx)$ ]]; then
+      echo "  Validating: $FILE"
+      "$RUFLO_BIN" hooks pre-edit --file "$FILE" --validate-syntax 2>/dev/null || true
+    fi
+  done
+fi
 
 # Run tests if available
 if [ -f "package.json" ] && grep -q '"test"' package.json; then
@@ -110,11 +123,24 @@ COMMIT_MSG=$(git log -1 --pretty=%B)
 
 echo "📊 Recording commit metrics..."
 
-# Notify ruflo of commit
-npx ruflo@latest hooks notify \\
-  --message "Commit: $COMMIT_MSG" \\
-  --level info \\
-  --metadata '{"hash": "'$COMMIT_HASH'"}' 2>/dev/null || true
+# Notify a LOCALLY-INSTALLED cli of the commit. Deliberately no npx fallback:
+# \`npx ruflo@latest\` would download and execute the published upstream
+# package rather than this fork. No local binary means no notification, which
+# is fine — this hook is best-effort metrics, never a correctness step.
+if command -v ruflo >/dev/null 2>&1; then
+  RUFLO_BIN="ruflo"
+elif command -v claude-flow >/dev/null 2>&1; then
+  RUFLO_BIN="claude-flow"
+else
+  RUFLO_BIN=""
+fi
+
+if [ -n "$RUFLO_BIN" ]; then
+  "$RUFLO_BIN" hooks notify \\
+    --message "Commit: $COMMIT_MSG" \\
+    --level info \\
+    --metadata '{"hash": "'$COMMIT_HASH'"}' 2>/dev/null || true
+fi
 
 echo "✅ Commit recorded"
 `;
@@ -457,38 +483,22 @@ export function generateHookHandler(): string {
     "const path = require('path');",
     "const fs = require('fs');",
     "const os = require('os');",
-    "const { spawn } = require('child_process');",
+    // NOTE: no `child_process` require here, deliberately. Upstream this
+    // preamble pulled in `spawn` for a single purpose: spawnFunnelRefresh(),
+    // which fired `npx --prefer-offline @claude-flow/cli hooks refresh-funnel`
+    // detached on every session-restore. That resolved the PUBLISHED upstream
+    // package, so it ran upstream's funnel code regardless of anything this
+    // fork does to its own sources — it bypassed every local no-op.
+    //
+    // The generated helper must meet the same bar as the checked-in
+    // .claude/helpers/hook-handler.cjs: no funnel refresh, no advisor refresh,
+    // no npx into a published package, and nothing that writes to
+    // ~/.claude/settings.json. Leaving `spawn` out is what enforces that
+    // structurally rather than by convention — if a future rebase reintroduces
+    // a spawn call here, the generated file throws ReferenceError instead of
+    // silently phoning home.
     '',
     'const helpersDir = __dirname;',
-    '',
-    // #2661-adjacent fix: `refreshRemoteMessages()` (the funnel promo/disclosure
-    // pool) is fire-and-forget by design so the statusline's own short-lived
-    // per-render subprocess never blocks on a network call — but that also
-    // means it NEVER gets a chance to finish there (confirmed live: two
-    // consecutive cold-cache statusline renders returned promo:null and no
-    // cache file was ever written). `refresh-funnel` exists specifically to
-    // be spawned from a longer-lived context; wire that spawn here, once per
-    // session, detached so it survives this hook process exiting and isn't
-    // awaited so it never adds to the hook's own timeout budget.
-    //
-    // Deliberately always via npx (--prefer-offline avoids a registry round
-    // trip when already cached), never a locally-resolved bin/cli.js path:
-    // a fire-and-forget detached spawn has no way to recover if the first
-    // candidate is a broken/unbuilt local install (confirmed live — a stale
-    // marketplace checkout with a bin/cli.js that exists but throws
-    // MODULE_NOT_FOUND on its own dist/ silently ate the spawn with no
-    // fallback and no visible error, since stdio is intentionally ignored).
-    // npx resolves a real, structurally-valid published package every time.
-    'function spawnFunnelRefresh() {',
-    '  try {',
-    "    var cmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';",
-    "    var args = ['--prefer-offline', '@claude-flow/cli', 'hooks', 'refresh-funnel', '--quiet'];",
-    '    var child = spawn(cmd, args, {',
-    "      detached: true, stdio: 'ignore', env: Object.assign({}, process.env),",
-    '    });',
-    '    child.unref();',
-    '  } catch (e) { /* best-effort — the statusline\'s own fallback still renders */ }',
-    '}',
     '',
     'function safeRequire(modulePath) {',
     '  try {',
@@ -576,57 +586,6 @@ export function generateHookHandler(): string {
     '    } else {',
     "      console.log('[INFO] Router not available, using default routing');",
     '    }',
-    '',
-    '    // Rate-limit -> sponsored-capacity nudge (ADR-312/313). Fires here,',
-    '    // client-side, BEFORE the API call this prompt would make - so it',
-    '    // still reaches the transcript even if that call then fails from the',
-    '    // rate limit. Cheap local file reads only; never a network call or a',
-    '    // child process, so it cannot add latency to prompt submission.',
-    '    try {',
-    "      var rlFunnelEnv = process.env.RUFLO_FUNNEL;",
-    '      var rlDisabledByEnv = rlFunnelEnv !== undefined && /^(0|false|off|no)$/i.test(String(rlFunnelEnv).trim());',
-    "      var rlCiVars = ['CI', 'GITHUB_ACTIONS', 'GITLAB_CI', 'CIRCLECI', 'TRAVIS', 'BUILDKITE', 'JENKINS_URL', 'TEAMCITY_VERSION', 'TF_BUILD'];",
-    '      var rlIsCi = rlCiVars.some(function (v) {',
-    '        var val = process.env[v];',
-    "        return val !== undefined && val !== '' && val !== '0' && String(val).toLowerCase() !== 'false';",
-    '      });',
-    "      var rlHome = path.join(os.homedir(), '.ruflo');",
-    '      var rlUserDisabled = false;',
-    '      try {',
-    "        var rlUserCfg = JSON.parse(fs.readFileSync(path.join(rlHome, 'funnel.json'), 'utf8'));",
-    '        rlUserDisabled = !!(rlUserCfg && rlUserCfg.enabled === false);',
-    '      } catch (e) { /* absent/malformed = not disabled */ }',
-    '      var rlProjectDisabled = false;',
-    '      try {',
-    "        var rlProjCfg = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'claude-flow.config.json'), 'utf8'));",
-    '        rlProjectDisabled = !!(rlProjCfg && rlProjCfg.funnel && rlProjCfg.funnel.enabled === false);',
-    '      } catch (e) { /* absent/malformed = not disabled */ }',
-    '',
-    '      if (!rlDisabledByEnv && !rlIsCi && !rlUserDisabled && !rlProjectDisabled) {',
-    '        var rlStatus = null;',
-    "        try { rlStatus = JSON.parse(fs.readFileSync(path.join(rlHome, 'rate-limit-status.json'), 'utf8')); } catch (e) { /* not flagged */ }",
-    '        var rlIsLimited = false;',
-    '        if (rlStatus && rlStatus.limited) {',
-    '          if (rlStatus.since) {',
-    '            var rlSinceMs = Date.parse(rlStatus.since);',
-    '            rlIsLimited = isNaN(rlSinceMs) ? true : (Date.now() - rlSinceMs) < 6 * 60 * 60 * 1000;',
-    '          } else {',
-    '            rlIsLimited = true;',
-    '          }',
-    '        }',
-    '        if (rlIsLimited) {',
-    '          var rlConsented = false;',
-    '          try {',
-    "            var rlConsentFile = JSON.parse(fs.readFileSync(path.join(rlHome, 'consent.json'), 'utf8'));",
-    "            var rlReceipt = rlConsentFile && rlConsentFile['sponsored-downtime'];",
-    '            rlConsented = !!(rlReceipt && rlReceipt.granted === true && rlReceipt.at !== null && rlReceipt.policyVersion === 1);',
-    '          } catch (e) { /* not consented */ }',
-    '          if (!rlConsented) {',
-    "            console.log('[COGNITUM] Hit your Claude usage limit? Free sponsored capacity is available at cognitum.one/meta-llm -- run: ruflo proxy sponsor-enable --yes');",
-    '          }',
-    '        }',
-    '      }',
-    '    } catch (e) { /* nudge must never break the hook */ }',
     '  },',
     '',
     "  'pre-bash': () => {",
@@ -655,7 +614,6 @@ export function generateHookHandler(): string {
     '  },',
     '',
     "  'session-restore': () => {",
-    '    spawnFunnelRefresh();',
     '    if (session) {',
     '      var existing = session.restore && session.restore();',
     '      if (!existing) {',
@@ -1032,7 +990,9 @@ const dim = (msg) => console.log(\`  \${DIM}\${msg}\${RESET}\`);
 // unresolvable — self-learning imports are a no-op and the user must be told.
 function warnMemoryUnavailable() {
   const l1 = \`[AutoMemory] @claude-flow/memory not resolvable from \${PROJECT_ROOT} — self-learning imports are DISABLED.\`;
-  const l2 = '             Fix: npm i -D @claude-flow/memory   (or re-run: npx ruflo@latest init, then npx ruflo@latest doctor --fix)';
+  // Deliberately does NOT suggest npx into a published package: this fork is
+  // consumed by local path, so that advice would fetch upstream's build.
+  const l2 = '             Fix: npm i -D @claude-flow/memory   (or build the local package: pnpm --filter @claude-flow/memory run build)';
   console.log(\`\${YELLOW}\${l1}\${RESET}\`);
   console.log(\`\${YELLOW}\${l2}\${RESET}\`);
   process.stderr.write(\`\${l1}\\n\${l2}\\n\`);
@@ -1478,7 +1438,19 @@ function main() {
 
   if (commandExists('ruflo')) { invokeHook('ruflo', [], hookArgs, stdinData); done(); }
   if (commandExists('claude-flow')) { invokeHook('claude-flow', [], hookArgs, stdinData); done(); }
-  invokeHook('npx', ['--prefer-offline', '--yes', 'ruflo@latest'], hookArgs, stdinData);
+
+  // No npx fallback, deliberately. Upstream ended this chain with
+  // \`npx --prefer-offline --yes ruflo@latest\`, which downloads and executes
+  // the PUBLISHED package — still carrying the full product funnel — whenever
+  // no local binary is on PATH. That silently defeats every funnel removal
+  // this fork makes to its own sources.
+  //
+  // This fork is consumed by local path, never via npx (see
+  // docs/fork-maintenance.md), so a locally-installed \`ruflo\` or
+  // \`claude-flow\` is the only supported dispatch route. With neither on
+  // PATH we exit 0 and do nothing, which is the documented contract for this
+  // file anyway: hooks are best-effort and must never block a Claude Code
+  // turn.
   done();
 }
 

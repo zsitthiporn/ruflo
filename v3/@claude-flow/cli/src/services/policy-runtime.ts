@@ -26,6 +26,11 @@ import {
 } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { userInfo } from 'node:os';
+// ADR-324 follow-up (issue #10): resolve against the pinned project root the
+// same way task/session/memory already do, instead of the raw process cwd —
+// see getProjectCwd() for why (CLAUDE_FLOW_CWD override for global/MCP
+// installs where process.cwd() can resolve to '/' or the wrong directory).
+import { getProjectCwd } from '../mcp-tools/types.js';
 
 const POLICY_DIR = join('.claude-flow', 'policy');
 const POLICY_FILE = 'state.json';
@@ -163,7 +168,7 @@ function configuredPolicyMode(projectRoot: string): PolicyState['mode'] | undefi
   return configured;
 }
 
-export function loadPolicyState(projectRoot = process.cwd()): PolicyState {
+export function loadPolicyState(projectRoot = getProjectCwd()): PolicyState {
   const target = paths(projectRoot);
   if (!existsSync(target.state)) {
     verifyStateAnchor(projectRoot, undefined);
@@ -177,7 +182,7 @@ export function loadPolicyState(projectRoot = process.cwd()): PolicyState {
   return parsed;
 }
 
-export async function autoMigratePolicyStateIfNeeded(projectRoot = process.cwd()): Promise<{
+export async function autoMigratePolicyStateIfNeeded(projectRoot = getProjectCwd()): Promise<{
   migrated: boolean;
   statePath?: string;
   mode?: PolicyState['mode'];
@@ -266,26 +271,26 @@ function verifyPolicyEvidence(evidence: PolicyEvidence): boolean {
 
 export async function evaluatePolicyRequest(
   request: PolicyRequest,
-  projectRoot = process.cwd(),
+  projectRoot = getProjectCwd(),
 ): Promise<PolicyDecision> {
   return withPolicyTransaction(projectRoot, (engine) => engine.evaluate(request));
 }
 
-export async function setPolicyMode(mode: PolicyState['mode'], projectRoot = process.cwd()): Promise<void> {
+export async function setPolicyMode(mode: PolicyState['mode'], projectRoot = getProjectCwd()): Promise<void> {
   return withPolicyTransaction(projectRoot, (engine) => engine.setMode(mode));
 }
 
-export async function upsertPolicyRule(rule: PolicyRule, projectRoot = process.cwd()): Promise<void> {
+export async function upsertPolicyRule(rule: PolicyRule, projectRoot = getProjectCwd()): Promise<void> {
   return withPolicyTransaction(projectRoot, (engine) => engine.upsertRule(rule));
 }
 
-export async function setPolicyBudget(limit: BudgetLimit, projectRoot = process.cwd()): Promise<void> {
+export async function setPolicyBudget(limit: BudgetLimit, projectRoot = getProjectCwd()): Promise<void> {
   return withPolicyTransaction(projectRoot, (engine) => engine.setBudget(limit));
 }
 
 export async function issuePolicyApproval(
   approval: Omit<PolicyApproval, 'uses' | 'issuedAt'> & { uses?: number; issuedAt?: number },
-  projectRoot = process.cwd(),
+  projectRoot = getProjectCwd(),
   approvalIssuerVerifier?: (issuer: string) => boolean,
 ): Promise<PolicyApproval> {
   return withPolicyTransaction(
@@ -295,11 +300,11 @@ export async function issuePolicyApproval(
   );
 }
 
-export async function revokePolicyApproval(id: string, projectRoot = process.cwd()): Promise<boolean> {
+export async function revokePolicyApproval(id: string, projectRoot = getProjectCwd()): Promise<boolean> {
   return withPolicyTransaction(projectRoot, (engine) => engine.revokeApproval(id));
 }
 
-export async function verifyPolicyLedger(projectRoot = process.cwd()): Promise<ReturnType<AgenticPolicyEngine['verifyLedger']>> {
+export async function verifyPolicyLedger(projectRoot = getProjectCwd()): Promise<ReturnType<AgenticPolicyEngine['verifyLedger']>> {
   return withPolicyTransaction(projectRoot, (engine) => engine.verifyLedger());
 }
 
@@ -318,7 +323,13 @@ export async function authorizeMcpTool(
     concurrency?: number;
   }> = {},
 ): Promise<PolicyDecision> {
-  let projectRoot = typeof context.projectRoot === 'string' ? context.projectRoot : process.cwd();
+  // The MCP dispatch chokepoint (mcp-client.ts -> mcp-server.ts) does not
+  // thread an explicit context.projectRoot through every call site, so this
+  // fallback IS the effective resolution path for a live MCP session — it
+  // must agree with getProjectCwd() (CLAUDE_FLOW_CWD), not raw process.cwd(),
+  // or state escapes into whatever directory the server process happened to
+  // start in.
+  let projectRoot = typeof context.projectRoot === 'string' ? context.projectRoot : getProjectCwd();
   let processEnvelope: CapabilityEnvelope | undefined;
   if (process.env.CLAUDE_FLOW_CAPABILITY_ENVELOPE) {
     try {

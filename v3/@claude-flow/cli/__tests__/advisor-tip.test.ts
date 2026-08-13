@@ -1,15 +1,21 @@
 /**
- * advisor-tip.ts — ADR-316 co-pilot advisor tip.
+ * advisor-tip.ts — the ADR-316 co-pilot advisor tip, REMOVED IN THIS FORK.
  *
- * Every test injects a fake FableHarness-shaped object (or a fully
- * constructed FableHarness with an injected spawnClaude) so no test ever
- * shells out to `claude` or spends a cent. Coverage:
- *   • consent gate (never refreshes without 'advisor-tips' consent)
- *   • TTL gate (never re-spends within ADVISOR_REFRESH_TTL_MS)
- *   • cache read/write shape, including the "no-tip" case (still stamps
- *     _ts so a "nothing to say" answer isn't re-asked all window long)
- *   • readAdvisorTip() is a pure, synchronous cache reader — TTL-expired
- *     entries return null
+ * Upstream, `refreshAdvisorTipIfStale()` was the one insight source that spent
+ * real money and made a real outbound call: it spawned a `claude -p` run via
+ * the Fable Advisor Harness with a ~$0.40 budget cap, fired detached from
+ * every SessionStart, to produce a one-line tip for the statusline promo row.
+ * This suite used to verify that spend was correctly gated (consent + TTL).
+ *
+ * The row is gone, the SessionStart spawn is gone from hook-handler.cjs, and
+ * the refresh is inert. The suite is INVERTED rather than deleted: gating a
+ * spend path is a weaker guarantee than not having one, and these tests now
+ * assert the stronger property — the harness is never constructed, never
+ * called, and never writes, no matter what consent or cache state says.
+ *
+ * `readAdvisorTip()` is deliberately still FUNCTIONAL (a synchronous, $0,
+ * network-free cache read), so its coverage is retained — but it now seeds
+ * the cache file directly instead of going through the removed refresh path.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
@@ -22,10 +28,16 @@ import {
   readAdvisorTip,
   refreshAdvisorTipIfStale,
 } from '../src/funnel/advisor-tip.js';
-import type { FableHarness as FableHarnessType } from '../src/services/fable-harness.js';
 
 let stateDir: string;
 let savedEnv: NodeJS.ProcessEnv;
+
+const CACHE_FILE = 'advisor-tip.json';
+
+/** Write the cache the way the (now removed) refresh path used to. */
+function seedCache(entry: { _ts: number; headline?: string; detail?: string }): void {
+  fs.writeFileSync(path.join(stateDir, CACHE_FILE), JSON.stringify(entry), 'utf-8');
+}
 
 beforeEach(() => {
   stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'advisor-tip-test-'));
@@ -38,106 +50,86 @@ afterEach(() => {
   fs.rmSync(stateDir, { recursive: true, force: true });
 });
 
-describe('refreshAdvisorTipIfStale — consent gate', () => {
-  it('never calls the harness without advisor-tips consent', async () => {
+describe('refreshAdvisorTipIfStale — the spend/network path is removed, not gated', () => {
+  it('never calls an injected harness, even with consent granted and no cache', async () => {
+    recordConsent('advisor-tips', true, 'test');
     let called = false;
-    const harness = { adviseCoPilotTip: async () => { called = true; return null; } } as unknown as FableHarnessType;
+    const harness = { adviseCoPilotTip: async () => { called = true; return { headline: 'x', detail: 'y' }; } };
     const result = await refreshAdvisorTipIfStale({}, { harness });
-    expect(result).toEqual({ refreshed: false, reason: 'not-consented' });
     expect(called).toBe(false);
+    expect(result).toEqual({ refreshed: false, reason: 'removed-in-fork' });
   });
 
-  it('calls the harness once consent is granted', async () => {
+  it('never calls the harness even when the cache is long past its TTL', async () => {
+    // The old TTL gate was the thing standing between "consented" and "spends
+    // money". A stale cache was precisely the condition that opened the spend.
     recordConsent('advisor-tips', true, 'test');
-    let called = false;
-    const harness = {
-      adviseCoPilotTip: async () => { called = true; return { headline: 'x', detail: 'y', confidence: 0.5 }; },
-    } as unknown as FableHarnessType;
-    const result = await refreshAdvisorTipIfStale({}, { harness });
-    expect(result).toEqual({ refreshed: true });
-    expect(called).toBe(true);
-  });
-});
-
-describe('refreshAdvisorTipIfStale — TTL gate (at most once per window)', () => {
-  it('does not re-spend within the TTL window', async () => {
-    recordConsent('advisor-tips', true, 'test');
+    seedCache({ _ts: 0 });
     let calls = 0;
-    const harness = {
-      adviseCoPilotTip: async () => { calls++; return { headline: 'tip', detail: 'd', confidence: 0.9 }; },
-    } as unknown as FableHarnessType;
-    const t0 = new Date(0);
-    const first = await refreshAdvisorTipIfStale({}, { now: t0, harness });
-    expect(first.refreshed).toBe(true);
-    expect(calls).toBe(1);
-
-    const stillFresh = new Date(t0.getTime() + ADVISOR_REFRESH_TTL_MS - 1000);
-    const second = await refreshAdvisorTipIfStale({}, { now: stillFresh, harness });
-    expect(second).toEqual({ refreshed: false, reason: 'fresh' });
-    expect(calls).toBe(1); // no second spawn
-  });
-
-  it('re-spends once the TTL window has elapsed', async () => {
-    recordConsent('advisor-tips', true, 'test');
-    let calls = 0;
-    const harness = {
-      adviseCoPilotTip: async () => { calls++; return { headline: 'tip', detail: 'd', confidence: 0.9 }; },
-    } as unknown as FableHarnessType;
-    const t0 = new Date(0);
-    await refreshAdvisorTipIfStale({}, { now: t0, harness });
-    const afterTtl = new Date(t0.getTime() + ADVISOR_REFRESH_TTL_MS + 1000);
+    const harness = { adviseCoPilotTip: async () => { calls++; return { headline: 'tip', detail: 'd' }; } };
+    const afterTtl = new Date(ADVISOR_REFRESH_TTL_MS * 10);
     const result = await refreshAdvisorTipIfStale({}, { now: afterTtl, harness });
-    expect(result.refreshed).toBe(true);
-    expect(calls).toBe(2);
+    expect(calls).toBe(0);
+    expect(result.refreshed).toBe(false);
+  });
+
+  it('writes nothing to the state dir', async () => {
+    recordConsent('advisor-tips', true, 'test');
+    const before = fs.readdirSync(stateDir).sort();
+    await refreshAdvisorTipIfStale({ gitUncommittedCount: 50 }, { now: new Date() });
+    expect(fs.readdirSync(stateDir).sort()).toEqual(before);
+  });
+
+  it('does not construct a real FableHarness when none is injected', async () => {
+    // Upstream defaulted to `new FableHarness({ maxBudgetUsd: ... })` when no
+    // harness was passed. The module no longer imports FableHarness at all, so
+    // this call must resolve without spawning or throwing.
+    recordConsent('advisor-tips', true, 'test');
+    await expect(refreshAdvisorTipIfStale({})).resolves.toEqual({
+      refreshed: false,
+      reason: 'removed-in-fork',
+    });
   });
 });
 
-describe('refreshAdvisorTipIfStale — cache write shape', () => {
-  it('writes headline+detail to the cache on a real tip', async () => {
-    recordConsent('advisor-tips', true, 'test');
-    const harness = {
-      adviseCoPilotTip: async () => ({ headline: 'Commit your work', detail: '50 files uncommitted.', confidence: 0.8 }),
-    } as unknown as FableHarnessType;
-    const now = new Date();
-    await refreshAdvisorTipIfStale({ gitUncommittedCount: 50 }, { now, harness });
-    const tip = readAdvisorTip(now);
-    expect(tip).toEqual({ headline: 'Commit your work', detail: '50 files uncommitted.' });
-  });
+describe('advisor-tip.ts — carries no model-spawn surface', () => {
+  // Assert on CODE, not prose: the module's doc comment legitimately explains
+  // what was removed and names FableHarness while doing so. Strip comments
+  // first, then check what actually executes.
+  it('does not import the Fable harness or invoke it', () => {
+    const here = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
+    const raw = fs.readFileSync(path.resolve(here, '../src/funnel/advisor-tip.ts'), 'utf-8');
+    const code = raw
+      .replace(/\/\*[\s\S]*?\*\//g, '') // block comments
+      .replace(/^\s*\/\/.*$/gm, '');    // line comments
 
-  it('stamps the cache even when the model finds nothing worth surfacing (no re-ask within the window)', async () => {
-    recordConsent('advisor-tips', true, 'test');
-    let calls = 0;
-    const harness = { adviseCoPilotTip: async () => { calls++; return null; } } as unknown as FableHarnessType;
-    const now = new Date();
-    const first = await refreshAdvisorTipIfStale({}, { now, harness });
-    expect(first).toEqual({ refreshed: true, reason: 'no-tip' });
-    expect(readAdvisorTip(now)).toBeNull(); // nothing to show, but...
-    const second = await refreshAdvisorTipIfStale({}, { now: new Date(now.getTime() + 1000), harness });
-    expect(second).toEqual({ refreshed: false, reason: 'fresh' }); // ...not re-asked
-    expect(calls).toBe(1);
-  });
-
-  it('surfaces harness errors as refreshed:false without throwing', async () => {
-    recordConsent('advisor-tips', true, 'test');
-    const harness = { adviseCoPilotTip: async () => { throw new Error('spawn failed'); } } as unknown as FableHarnessType;
-    const result = await refreshAdvisorTipIfStale({}, { harness });
-    expect(result).toEqual({ refreshed: false, reason: 'error' });
+    expect(code).not.toMatch(/^\s*import\s[\s\S]*?fable-harness/m);
+    expect(code).not.toContain('FableHarness');
+    expect(code).not.toContain('adviseCoPilotTip');
+    expect(code).not.toContain('spawn');
   });
 });
 
-describe('readAdvisorTip — pure cache reader', () => {
+describe('readAdvisorTip — pure cache reader (retained, still functional)', () => {
   it('returns null when nothing has been cached', () => {
     expect(readAdvisorTip()).toBeNull();
   });
 
-  it('returns null for an expired cache entry', async () => {
-    recordConsent('advisor-tips', true, 'test');
-    const harness = {
-      adviseCoPilotTip: async () => ({ headline: 'tip', detail: 'd', confidence: 0.9 }),
-    } as unknown as FableHarnessType;
+  it('reads a cached headline+detail within the TTL', () => {
+    const now = new Date();
+    seedCache({ _ts: now.getTime(), headline: 'Commit your work', detail: '50 files uncommitted.' });
+    expect(readAdvisorTip(now)).toEqual({ headline: 'Commit your work', detail: '50 files uncommitted.' });
+  });
+
+  it('returns null for an expired cache entry', () => {
     const t0 = new Date(0);
-    await refreshAdvisorTipIfStale({}, { now: t0, harness });
-    const expired = new Date(t0.getTime() + ADVISOR_REFRESH_TTL_MS + 1);
-    expect(readAdvisorTip(expired)).toBeNull();
+    seedCache({ _ts: t0.getTime(), headline: 'tip', detail: 'd' });
+    expect(readAdvisorTip(new Date(t0.getTime() + ADVISOR_REFRESH_TTL_MS + 1))).toBeNull();
+  });
+
+  it('treats an epoch-zero timestamp as present, not absent', () => {
+    // Regression: `!cache._ts` would wrongly discard a legitimate _ts of 0.
+    seedCache({ _ts: 0, headline: 'tip', detail: 'd' });
+    expect(readAdvisorTip(new Date(1000))).toEqual({ headline: 'tip', detail: 'd' });
   });
 });

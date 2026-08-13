@@ -104,58 +104,38 @@ function dailyBucket(now: Date): string {
 }
 
 /**
- * Record a funnel event to the local queue. No-op (returns false) when
- * telemetry consent is absent — consent-off means zero funnel records.
- * `messageId` is only carried for promo_impression / promo_open events; on
- * every other event it is dropped so the schema stays clean.
+ * Record a funnel event — WRITE PATH REMOVED IN THIS FORK.
+ *
+ * This queue existed to be shipped: `event-transport.ts` batched it and
+ * POSTed it to `https://funnel.ruv.io/v1/events`. That transport is deleted,
+ * so anything appended here can only accumulate on disk with no reader.
+ *
+ * Two reasons the write goes rather than just the transport:
+ *   1. A local file nobody reads is not telemetry, it is litter — bounded at
+ *      256 KiB, but still a record of the user's activity kept for no
+ *      purpose the user can benefit from.
+ *   2. If a future upstream rebase restores the transport, it would find a
+ *      pre-populated queue and ship the backlog on first run. Keeping the
+ *      queue full is the part that makes that dangerous.
+ *
+ * The symbol is RETAINED and its signature unchanged: `commands/proxy.ts`
+ * calls it at six sites and is outside the scope of this change. It now
+ * always returns false — the same value it already returned for every user
+ * without telemetry consent, which is the default. Callers already treat
+ * false as normal.
+ *
+ * The read/delete side of this module stays FUNCTIONAL on purpose:
+ * `deleteFunnelData()` is what `settings.json`'s "delete my data" path uses
+ * to clear any queue written by a previous install, `getFunnelId()` backs
+ * the status display, and `lastRecordedEvent()` is read by `doctor`.
+ * Removing them would strip the user's ability to clean up pre-existing
+ * state — the opposite of the intent.
  */
 export function recordFunnelEvent(
-  event: FunnelEventName,
-  surface: FunnelSurface,
-  release: string,
-  optsOrNow: Date | { now?: Date; messageId?: string } = new Date(),
+  _event: FunnelEventName,
+  _surface: FunnelSurface,
+  _release: string,
+  _optsOrNow: Date | { now?: Date; messageId?: string } = new Date(),
 ): boolean {
-  if (!EVENT_NAMES.includes(event) || !SURFACES.includes(surface)) return false;
-  if (!hasConsent('telemetry')) return false;
-  const now = optsOrNow instanceof Date ? optsOrNow : (optsOrNow.now ?? new Date());
-  const messageId = optsOrNow instanceof Date ? undefined : optsOrNow.messageId;
-  const payload: FunnelEvent = {
-    schemaVersion: 1,
-    event,
-    surface,
-    release,
-    timestampBucket: dailyBucket(now),
-  };
-  const id = getFunnelId(now);
-  if (id) payload.pseudonymousId = id;
-  // messageId is only carried on promo events; validated + length-capped so
-  // the schema stays predictable.
-  if (messageId && (event === 'promo_impression' || event === 'promo_open')) {
-    if (typeof messageId === 'string' && messageId.length > 0 && messageId.length <= 64) {
-      payload.messageId = messageId;
-    }
-  }
-  try {
-    fs.mkdirSync(funnelStateDir(), { recursive: true, mode: 0o700 });
-    const file = statePath(EVENTS_FILE);
-    let existing = '';
-    try {
-      existing = fs.readFileSync(file, 'utf-8');
-    } catch {
-      // first event
-    }
-    const lines = existing ? existing.split('\n').filter(Boolean) : [];
-    lines.push(JSON.stringify(payload));
-    let out = lines.slice(-MAX_QUEUE_EVENTS).join('\n') + '\n';
-    while (Buffer.byteLength(out, 'utf-8') > MAX_QUEUE_BYTES) {
-      const trimmed = out.split('\n').filter(Boolean);
-      trimmed.shift();
-      out = trimmed.join('\n') + '\n';
-    }
-    fs.writeFileSync(file, out, { encoding: 'utf-8', mode: 0o600 });
-    return true;
-  } catch {
-    // Telemetry must never block or break the CLI (ADR-308 failure policy).
-    return false;
-  }
+  return false;
 }
