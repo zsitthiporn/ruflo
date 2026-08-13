@@ -48,7 +48,7 @@
     "vitest": "^4.1.0"
   },
   "peerDependencies": {
-    "@claude-flow/shared": "^3.0.0-alpha.1",
+    "@claude-flow/shared": "workspace:*",
     "agentic-flow": "^2.0.0",
     "@huggingface/transformers": "^4.0.0"
   },

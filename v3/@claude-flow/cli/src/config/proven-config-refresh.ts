@@ -12,6 +12,12 @@
  * authenticity (Ed25519) AND suitability (host/platform/compatibility/layer).
  * A signed-but-unsuitable champion is a SAFE skip (not an error), which is also
  * the backwards-compatibility version gate. Zero deps on the decision path.
+ *
+ * FORK NOTE: this fork deliberately does not adopt config from an
+ * externally-resolved package at runtime by default — see
+ * docs/fork-maintenance.md. autoAdoptProvenConfigIfStale() below is opt-in
+ * (RUFLO_PROVEN_CONFIG_AUTO_ADOPT=1), not opt-out; see the gate at the top
+ * of that function for the rationale.
  */
 import * as fs from 'fs';
 import * as path from 'path';
@@ -132,9 +138,24 @@ export function adoptSignedConfig(
  * On CLI startup: if the package ships a signed champion newer than the
  * project's stamp, adopt it when authentic + suitable. Best-effort, never
  * throws. No-op when no manifest ships or the project isn't initialized.
+ *
+ * FORK NOTE: same family as helper-refresh.ts (see its file-level FORK NOTE
+ * and docs/fork-maintenance.md) — findPackageProvenConfig() above resolves
+ * `@claude-flow/cli/package.json` and adopts whatever signed champion that
+ * resolved package happens to ship. This fork does not trust an
+ * externally-resolved package at runtime by default. Unlike helper-refresh,
+ * this path previously had NO opt-out at all (no `.LOCKED` equivalent), so
+ * it was arguably the more exposed of the two. Opt-in only:
+ * RUFLO_PROVEN_CONFIG_AUTO_ADOPT=1 re-enables it. Silent no-op (not a
+ * `skipped`/warning) when not opted in — the caller (src/index.ts:191-205)
+ * doesn't surface `skipped` as a warning today, and "not opted in" is the
+ * expected default here, not an error; same judgement as helper-refresh.ts.
  */
 export async function autoAdoptProvenConfigIfStale(cwd: string = process.cwd()): Promise<AdoptResult> {
   try {
+    if (!/^(1|true|on|yes)$/i.test(String(process.env.RUFLO_PROVEN_CONFIG_AUTO_ADOPT || ''))) {
+      return { adopted: false };
+    }
     if (!fs.existsSync(path.join(cwd, '.claude'))) return { adopted: false };
     const src = findPackageProvenConfig();
     if (!src) return { adopted: false }; // no champion ships → no-op (additive)

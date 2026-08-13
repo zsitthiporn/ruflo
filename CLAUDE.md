@@ -4,6 +4,15 @@
 > Use package manifests and the registry as version truth; do not copy stale
 > version or capability counts into agent guidance.
 
+> **This is a fork and it runs its own build.** CLI examples below read
+> `node bin/cli.js …` and assume the repo root as the working directory —
+> deliberately not `npx …@latest`, which fetches upstream from the registry
+> rather than this code. See [`docs/fork-maintenance.md`](docs/fork-maintenance.md).
+>
+> One shell trap, confirmed on this machine: in **Git Bash** the `node` shim
+> fails with `stdin is not a tty` — use `node.exe bin/cli.js …` there.
+> **PowerShell** (the primary shell here) and cmd run `node bin/cli.js …` fine.
+
 ## Behavioral Rules (Always Enforced)
 
 - Do what has been asked; nothing more, nothing less
@@ -222,7 +231,7 @@ the same way it would a Claude worker, and reviews its report on return:
 
 ```bash
 # One Codex worker, scoped to a namespace the lead chose
-npx claude-flow-codex dual run --worker 'codex:coder:<explicit brief with file ownership>' --namespace <namespace>
+node v3/@claude-flow/codex/dist/cli.js dual run --worker 'codex:coder:<explicit brief with file ownership>' --namespace <namespace>
 ```
 
 Do not fan out a fixed architect/coder/tester/reviewer pipeline by reflex.
@@ -241,12 +250,12 @@ Dispatch the items that are actually separable, and only those.
 
 ```bash
 # Run a collaboration template
-npx claude-flow-codex dual run feature --task "Add user authentication with OAuth"
-npx claude-flow-codex dual run security --target "./src"
-npx claude-flow-codex dual run refactor --target "./src/legacy"
+node v3/@claude-flow/codex/dist/cli.js dual run feature --task "Add user authentication with OAuth"
+node v3/@claude-flow/codex/dist/cli.js dual run security --target "./src"
+node v3/@claude-flow/codex/dist/cli.js dual run refactor --target "./src/legacy"
 
 # Custom multi-platform swarm
-npx claude-flow-codex dual run \
+node v3/@claude-flow/codex/dist/cli.js dual run \
   --worker "claude:architect:Design the API structure" \
   --worker "codex:coder:Implement REST endpoints" \
   --worker "claude:tester:Write integration tests" \
@@ -254,10 +263,10 @@ npx claude-flow-codex dual run \
   --namespace "api-feature"
 
 # Check collaboration status
-npx claude-flow-codex dual status
+node v3/@claude-flow/codex/dist/cli.js dual status
 
 # List available templates
-npx claude-flow-codex dual templates
+node v3/@claude-flow/codex/dist/cli.js dual templates
 ```
 
 ### Shared Memory Coordination
@@ -266,13 +275,13 @@ All workers share state via the `collaboration` namespace:
 
 ```bash
 # Store context for cross-platform sharing
-npx claude-flow@v3alpha memory store --namespace collaboration --key "design-decisions" --value "..."
+node bin/cli.js memory store --namespace collaboration --key "design-decisions" --value "..."
 
 # Search for patterns across all workers
-npx claude-flow@v3alpha memory search --namespace collaboration --query "authentication patterns"
+node bin/cli.js memory search --namespace collaboration --query "authentication patterns"
 
 # Retrieve specific findings
-npx claude-flow@v3alpha memory retrieve --namespace collaboration --key "security-findings"
+node bin/cli.js memory retrieve --namespace collaboration --key "security-findings"
 ```
 
 ### Cross-Platform Learning
@@ -281,13 +290,13 @@ Both platforms learn from each other's outputs:
 
 ```bash
 # After successful collaboration, train patterns
-npx claude-flow@v3alpha hooks post-task --task-id "dual-[id]" --success true --train-neural true
+node bin/cli.js hooks post-task --task-id "dual-[id]" --success true --train-neural true
 
 # Store successful collaboration patterns
-npx claude-flow@v3alpha memory store --namespace patterns --key "dual-mode-[pattern]" --value "[what worked]"
+node bin/cli.js memory store --namespace patterns --key "dual-mode-[pattern]" --value "[what worked]"
 
 # Transfer learnings to both platforms
-npx claude-flow@v3alpha hooks transfer store --pattern "dual-collab-success"
+node bin/cli.js hooks transfer store --pattern "dual-collab-success"
 ```
 
 ### Worker Dependency Levels
@@ -437,28 +446,28 @@ Workspace defaults:
 
 ```bash
 # Initialize project
-npx claude-flow@v3alpha init --wizard
+node bin/cli.js init --wizard
 
 # Start daemon with background workers
-npx claude-flow@v3alpha daemon start
+node bin/cli.js daemon start
 
 # Spawn an agent
-npx claude-flow@v3alpha agent spawn -t coder --name my-coder
+node bin/cli.js agent spawn -t coder --name my-coder
 
 # Initialize swarm
-npx claude-flow@v3alpha swarm init --v3-mode
+node bin/cli.js swarm init --v3-mode
 
 # Search memory (HNSW-indexed)
-npx claude-flow@v3alpha memory search -q "authentication patterns"
+node bin/cli.js memory search -q "authentication patterns"
 
 # System diagnostics
-npx claude-flow@v3alpha doctor --fix
+node bin/cli.js doctor --fix
 
 # Security scan
-npx claude-flow@v3alpha security scan --depth full
+node bin/cli.js security scan --depth full
 
 # Performance benchmark
-npx claude-flow@v3alpha performance benchmark --suite all
+node bin/cli.js performance benchmark --suite all
 ```
 
 ## Headless Background Instances (claude -p)
@@ -715,8 +724,8 @@ These hooks exist and are callable, but do less than their names suggest. See
 | `TaskCompleted` | Train patterns, notify lead | pattern training with `--train-patterns` is real; the lead notification is an echoed flag, not a delivered message |
 
 ```bash
-npx claude-flow@v3alpha hooks teammate-idle --auto-assign true
-npx claude-flow@v3alpha hooks task-completed -i task-123 --train-patterns true
+node bin/cli.js hooks teammate-idle --auto-assign true
+node bin/cli.js hooks task-completed -i task-123 --train-patterns true
 ```
 
 Do not build a workflow that depends on either hook to route work. The lead
@@ -769,27 +778,27 @@ routes work.
 
 ```bash
 # Core hooks
-npx claude-flow@v3alpha hooks pre-task --description "[task]"
-npx claude-flow@v3alpha hooks post-task --task-id "[id]" --success true
-npx claude-flow@v3alpha hooks post-edit --file "[file]" --train-patterns
+node bin/cli.js hooks pre-task --description "[task]"
+node bin/cli.js hooks post-task --task-id "[id]" --success true
+node bin/cli.js hooks post-edit --file "[file]" --train-patterns
 
 # Session management
-npx claude-flow@v3alpha hooks session-start --session-id "[id]"
-npx claude-flow@v3alpha hooks session-end --export-metrics true
-npx claude-flow@v3alpha hooks session-restore --session-id "[id]"
+node bin/cli.js hooks session-start --session-id "[id]"
+node bin/cli.js hooks session-end --export-metrics true
+node bin/cli.js hooks session-restore --session-id "[id]"
 
 # Intelligence routing
-npx claude-flow@v3alpha hooks route --task "[task]"
-npx claude-flow@v3alpha hooks explain --topic "[topic]"
+node bin/cli.js hooks route --task "[task]"
+node bin/cli.js hooks explain --topic "[topic]"
 
 # Neural learning
-npx claude-flow@v3alpha hooks pretrain --model-type moe --epochs 10
-npx claude-flow@v3alpha hooks build-agents --agent-types coder,tester
+node bin/cli.js hooks pretrain --model-type moe --epochs 10
+node bin/cli.js hooks build-agents --agent-types coder,tester
 
 # Background workers
-npx claude-flow@v3alpha hooks worker list
-npx claude-flow@v3alpha hooks worker dispatch --trigger audit
-npx claude-flow@v3alpha hooks worker status
+node bin/cli.js hooks worker list
+node bin/cli.js hooks worker dispatch --trigger audit
+node bin/cli.js hooks worker status
 ```
 
 ## Intelligence System (RuVector)
@@ -876,7 +885,7 @@ CLAUDE_FLOW_MEMORY_PATH=./data/memory
 
 ## Doctor Health Checks
 
-Run `npx claude-flow@v3alpha doctor` to check:
+Run `node bin/cli.js doctor` to check:
 - Node.js version (20+)
 - npm version (9+)
 - Git installation
@@ -891,16 +900,18 @@ Run `npx claude-flow@v3alpha doctor` to check:
 ## Quick Setup
 
 ```bash
-# Add MCP servers
-claude mcp add claude-flow -- npx -y ruflo@latest mcp start
-claude mcp add ruv-swarm npx ruv-swarm mcp start  # Optional
-claude mcp add flow-nexus npx flow-nexus@latest mcp start  # Optional
+# Add MCP servers (this fork — absolute path, per docs/fork-maintenance.md §3.2;
+# `ruflo init` must never be run against this fork's MCP entry, it would write
+# the registry `npx -y ruflo@latest` form)
+claude mcp add claude-flow -- node D:/Project/ME/Ruflo/bin/cli.js mcp start
+claude mcp add ruv-swarm npx ruv-swarm mcp start  # Optional, third-party package
+claude mcp add flow-nexus npx flow-nexus@latest mcp start  # Optional, third-party package
 
 # Start daemon
-npx claude-flow@v3alpha daemon start
+node bin/cli.js daemon start
 
 # Run doctor
-npx claude-flow@v3alpha doctor --fix
+node bin/cli.js doctor --fix
 ```
 
 ## Claude Code vs MCP Tools
@@ -971,6 +982,23 @@ memory_search_unified({ query: "authentication security", limit: 5 })
 | AgentDB sql.js | Active | SQLite with vector_indexes table |
 
 ## Publishing to npm
+
+> **STOP — plain `npm publish` now ships broken packages.** As of 2026-08-14 all
+> intra-workspace dependencies use pnpm's `workspace:*` protocol, so that our own
+> source can never be silently replaced by a newer registry build (the substitution
+> was live, not hypothetical — see zsitthiporn/ruflo#8). Only **pnpm** rewrites
+> `workspace:*` into a real version at pack time. `npm publish` does not: it would
+> publish a `package.json` containing the literal string `"workspace:*"`, which no
+> installer can resolve.
+>
+> Every `npm publish` in the procedure below must become `pnpm publish`, or
+> `pnpm pack` followed by `npm publish <tarball>`. `scripts/smoke-cli-npx-install.mjs`
+> already documents this requirement. **The commands below have not been rewritten
+> yet — treat this section as accurate about intent and stale about the exact
+> command until someone does a publish run and fixes them.**
+>
+> This fork does not currently publish anything, which is why the change was made
+> anyway: correctness of what we run beat convenience of a release path we do not use.
 
 ### Versioning policy (stable releases — alpha series ended at 3.7.0-alpha.81, 2026-05-23)
 
@@ -1290,64 +1318,64 @@ Ruflo integrates with the upstream `metaharness` / `@metaharness/*` ecosystem as
 ### Command + tool surface
 
 ```bash
-# CLI subcommands (npx ruflo metaharness …)
-npx ruflo metaharness score                      # 5-dim readiness scorecard
-npx ruflo metaharness genome                     # 7-section categorical report
-npx ruflo metaharness mcp-scan --fail-on high    # static security findings
-npx ruflo metaharness threat-model               # enterprise threat report
-npx ruflo metaharness oia-audit --alert-on-worst high
+# CLI subcommands (node bin/cli.js metaharness …)
+node bin/cli.js metaharness score                      # 5-dim readiness scorecard
+node bin/cli.js metaharness genome                     # 7-section categorical report
+node bin/cli.js metaharness mcp-scan --fail-on high    # static security findings
+node bin/cli.js metaharness threat-model               # enterprise threat report
+node bin/cli.js metaharness oia-audit --alert-on-worst high
                                                  # composite weekly audit → memory
-npx ruflo metaharness audit-list --since 30d     # enumerate audit records
-npx ruflo metaharness audit-trend \              # diff two audits (drift)
+node bin/cli.js metaharness audit-list --since 30d     # enumerate audit records
+node bin/cli.js metaharness audit-trend \              # diff two audits (drift)
   --baseline-key <a> --current-key <b> --alert-on-worsening \
   --alert-on-distance-below 0.85               # iter 38 — structural-distance gate (ADR-152 §3.1)
-npx ruflo metaharness similarity \               # iter 36 — ADR-152 §3.1 weighted similarity
+node bin/cli.js metaharness similarity \               # iter 36 — ADR-152 §3.1 weighted similarity
   --a a.json --b b.json [--per-dimension] [--alert-below 0.5]
-npx ruflo metaharness drift-from-history \       # iter 53 — 1-command drift (composes 3 primitives)
+node bin/cli.js metaharness drift-from-history \       # iter 53 — 1-command drift (composes 3 primitives)
   [--baseline-since 7d] [--baseline-key <key>] [--baseline-file <path>] \
   [--threshold 0.95] [--alert-on-new-severity high] [--dry-run]
                                                  # iter 66 — --baseline-key skips audit-list (~14x faster)
                                                  # iter 67 — --baseline-file skips memory entirely (~19x faster)
                                                  # iter 78 — --alert-on-new-severity adds orthogonal finding-severity gate
-npx ruflo metaharness mint --name foo --template vertical:coding --confirm
-npx ruflo metaharness redblue init               # @metaharness/redblue — scaffold redblue.yaml
-npx ruflo metaharness redblue run --mock-judge --tests 10
+node bin/cli.js metaharness mint --name foo --template vertical:coding --confirm
+node bin/cli.js metaharness redblue init               # @metaharness/redblue — scaffold redblue.yaml
+node bin/cli.js metaharness redblue run --mock-judge --tests 10
                                                  # $0 marker-fixture path (CI / offline)
-npx ruflo metaharness redblue run --tests 50 --patch
+node bin/cli.js metaharness redblue run --tests 50 --patch
                                                  # real model judge (needs OPENROUTER_API_KEY,
                                                  #   capped by max_cost_usd, default $3)
-npx ruflo metaharness redblue attack prompt --count 3
+node bin/cli.js metaharness redblue attack prompt --count 3
                                                  # preview generated attack cases (no target call)
-npx ruflo metaharness redblue patch --mock-judge # baseline → blue-team patch → retest delta
-npx ruflo metaharness redblue report --in report.json
+node bin/cli.js metaharness redblue patch --mock-judge # baseline → blue-team patch → retest delta
+node bin/cli.js metaharness redblue report --in report.json
                                                  # render existing report as markdown
-npx ruflo metaharness learn --host claude-code --model haiku --slice slices/lite.json
+node bin/cli.js metaharness learn --host claude-code --model haiku --slice slices/lite.json
                                                  # metaharness@0.3.0 / upstream ADR-235 —
                                                  #   GEPA learning run; $0 dry-run default,
                                                  #   --run to spend; needs a metaharness
                                                  #   repo checkout (--repo / $METAHARNESS_REPO)
-npx ruflo metaharness gepa --op genome           # darwin@0.8.0 GEPA library — load + validate
+node bin/cli.js metaharness gepa --op genome           # darwin@0.8.0 GEPA library — load + validate
                                                  #   the shipped cand-6 genome (or --path <f>)
-npx ruflo metaharness gepa --op render           # genome → the system prompt it compiles to
-npx ruflo metaharness gepa --op analyze --transcript run.json
+node bin/cli.js metaharness gepa --op render           # genome → the system prompt it compiles to
+node bin/cli.js metaharness gepa --op analyze --transcript run.json
                                                  # classify failure modes in a transcript
-npx ruflo metaharness evolve --bench .harness/bench.json
+node bin/cli.js metaharness evolve --bench .harness/bench.json
                                                  # Darwin proposes candidates; governed gates decide
-npx ruflo metaharness bench verify --path .harness/bench.json
+node bin/cli.js metaharness bench verify --path .harness/bench.json
                                                  # create or verify stable benchmark corpora
-npx ruflo metaharness flywheel run --proposer auto --max-concurrency 2
+node bin/cli.js metaharness flywheel run --proposer auto --max-concurrency 2
                                                  # bounded concurrent evaluation; does not promote
-npx ruflo metaharness flywheel receipts          # inspect immutable evaluation receipts
-npx ruflo metaharness flywheel promote <receipt-id> \
+node bin/cli.js metaharness flywheel receipts          # inspect immutable evaluation receipts
+node bin/cli.js metaharness flywheel promote <receipt-id> \
   --public-key ./approved-ed25519-public.pem --confirm
                                                  # explicit policy-authorized atomic promotion
 
 # Dedicated command
-npx ruflo eject --name my-harness                # lift ruflo project → standalone harness
+node bin/cli.js eject --name my-harness                # lift ruflo project → standalone harness
                                                  # dry-run by default; refuses in-repo target
 
 # Doctor health check
-npx ruflo doctor --component metaharness         # report metaharness availability + version
+node bin/cli.js doctor --component metaharness         # report metaharness availability + version
 
 # MCP tools (callable by Claude Code agents)
 mcp__claude-flow__metaharness_score
@@ -1402,14 +1430,14 @@ Plugins are distributed via IPFS and can be installed with the CLI. Browse and i
 
 ```bash
 # List all available plugins
-npx claude-flow@v3alpha plugins list
+node bin/cli.js plugins list
 
 # Install a plugin
-npx claude-flow@v3alpha plugins install @claude-flow/plugin-name
+node bin/cli.js plugins install @claude-flow/plugin-name
 
 # Enable/disable
-npx claude-flow@v3alpha plugins enable @claude-flow/plugin-name
-npx claude-flow@v3alpha plugins disable @claude-flow/plugin-name
+node bin/cli.js plugins enable @claude-flow/plugin-name
+node bin/cli.js plugins disable @claude-flow/plugin-name
 ```
 
 ### Core Plugins
@@ -1451,13 +1479,13 @@ npx claude-flow@v3alpha plugins disable @claude-flow/plugin-name
 
 ```bash
 # Create a new plugin from template
-npx claude-flow@v3alpha plugins create my-plugin
+node bin/cli.js plugins create my-plugin
 
 # Test locally
-npx claude-flow@v3alpha plugins install ./path/to/my-plugin
+node bin/cli.js plugins install ./path/to/my-plugin
 
 # Publish to registry (requires Pinata credentials)
-npx claude-flow@v3alpha plugins publish
+node bin/cli.js plugins publish
 ```
 
 Registry source: IPFS via Pinata (`QmXbfEAaR7D2Ujm4GAkbwcGZQMHqAMpwDoje4583uNP834`)

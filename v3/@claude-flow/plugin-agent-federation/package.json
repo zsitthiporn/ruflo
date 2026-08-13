@@ -38,8 +38,8 @@
     }
   },
   "devDependencies": {
-    "@claude-flow/shared": "3.0.0-alpha.8",
-    "@claude-flow/security": "file:../security",
+    "@claude-flow/shared": "workspace:*",
+    "@claude-flow/security": "workspace:*",
     "@types/ws": "^8.18.1",
     "agentic-flow": "2.0.12-fix.8",
     "typescript": "^5.4.0",

@@ -327,8 +327,8 @@ const updateCommand: Command = {
     output.writeln();
     output.writeln('Environment Variables:');
     output.printList([
-      `${output.dim('CLAUDE_FLOW_AUTO_UPDATE=false')}  - Disable auto-update`,
-      `${output.dim('CLAUDE_FLOW_FORCE_UPDATE=true')} - Force update check`,
+      `${output.dim('CLAUDE_FLOW_AUTO_UPDATE=true')}  - Enable the silent startup auto-update check (opt-in; off by default in this fork — see docs/fork-maintenance.md)`,
+      `${output.dim('CLAUDE_FLOW_FORCE_UPDATE=true')} - Force update check (ignores rate limit; also applies to 'update check'/'update all' below, which work regardless of CLAUDE_FLOW_AUTO_UPDATE)`,
     ]);
     output.writeln();
     output.writeln('Run "claude-flow update <subcommand> --help" for subcommand help');

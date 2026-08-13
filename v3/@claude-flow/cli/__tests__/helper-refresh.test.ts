@@ -18,7 +18,7 @@
  * only actually exercises `writeCriticalHelpers`' verify → hash → copy logic
  * when it does.
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -59,7 +59,18 @@ function makeSignedSource(version: string): { sourceDir: string; pubkeyPem: stri
 
 describe('autoRefreshHelpersIfStale', () => {
   let version: string;
-  beforeEach(() => { version = getInstalledCliVersion(); });
+  // This suite predates the opt-in default flip (autoRefreshHelpersIfStale is
+  // now off unless RUFLO_HELPERS_AUTO_REFRESH is set — see the FORK NOTE at
+  // the top of src/init/helper-refresh.ts). None of the tests below are
+  // about that gate itself; they exercise the verify/copy/downgrade-guard
+  // logic behind it, so opt in globally here rather than per-test.
+  beforeEach(() => {
+    version = getInstalledCliVersion();
+    process.env.RUFLO_HELPERS_AUTO_REFRESH = '1';
+  });
+  afterEach(() => {
+    delete process.env.RUFLO_HELPERS_AUTO_REFRESH;
+  });
 
   it('refreshes a project whose helpers are stamped with an older version', async () => {
     const { cwd, helpersDir } = makeProject();

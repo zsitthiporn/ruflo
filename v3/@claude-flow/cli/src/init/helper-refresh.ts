@@ -12,6 +12,11 @@
  * This file is intentionally LIGHTWEIGHT — it is imported on every CLI startup,
  * so it depends only on `fs`/`path`/`module` at load time and lazily imports the
  * heavy generators only on the rare fallback path (source dir unresolvable).
+ *
+ * FORK NOTE: this fork deliberately does not pull code from an externally-
+ * resolved package at runtime by default — see docs/fork-maintenance.md.
+ * autoRefreshHelpersIfStale() below is opt-in (RUFLO_HELPERS_AUTO_REFRESH=1),
+ * not opt-out; see the gate at the top of that function for the rationale.
  */
 import * as fs from 'fs';
 import * as os from 'os';
@@ -322,6 +327,18 @@ export async function autoRefreshHelpersIfStale(
   global?: { refreshed: boolean; from?: string; to?: string; blocked?: string };
 }> {
   try {
+    // FORK NOTE: this fork deliberately never pulls code from the npm
+    // registry / an externally-resolved package at runtime by default — see
+    // docs/fork-maintenance.md. This used to be opt-out only (.LOCKED /
+    // RUFLO_HELPERS_LOCKED below). Inverted: opt-in only. This is a silent
+    // no-op (no `blocked` reason) rather than a warning, because "not opted
+    // in" is the expected default state here, not an error condition like
+    // an integrity failure — callers (src/index.ts) surface `blocked` as a
+    // loud warning on every command, which would be wrong for the default.
+    if (!/^(1|true|on|yes)$/i.test(String(process.env.RUFLO_HELPERS_AUTO_REFRESH || ''))) {
+      return { refreshed: false };
+    }
+
     // Env-level opt-out — applies to BOTH project and global passes.
     if (/^(1|true|on|yes)$/i.test(String(process.env.RUFLO_HELPERS_LOCKED || ''))) {
       return { refreshed: false, blocked: 'RUFLO_HELPERS_LOCKED env — refresh skipped' };

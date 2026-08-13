@@ -87,7 +87,7 @@
     "node": ">=18"
   },
   "peerDependencies": {
-    "@claude-flow/cli": "^3.0.0"
+    "@claude-flow/cli": "workspace:*"
   },
   "peerDependenciesMeta": {
     "@claude-flow/cli": {

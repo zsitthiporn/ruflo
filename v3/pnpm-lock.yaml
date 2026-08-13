@@ -65,7 +65,7 @@ importers:
   '@claude-flow/browser':
     dependencies:
       '@claude-flow/cli':
-        specifier: '>=3.5.0'
+        specifier: workspace:*
         version: link:../cli
       agent-browser:
         specifier: ^0.27.0
@@ -90,7 +90,7 @@ importers:
   '@claude-flow/claims':
     dependencies:
       '@claude-flow/shared':
-        specifier: ^3.0.0-alpha.1
+        specifier: workspace:*
         version: link:../shared
       zod:
         specifier: ^3.22.4
@@ -115,26 +115,26 @@ importers:
   '@claude-flow/cli':
     dependencies:
       '@claude-flow/cli-core':
-        specifier: 3.7.0-alpha.5
+        specifier: workspace:*
         version: link:../cli-core
       '@claude-flow/codex':
-        specifier: 3.0.3
+        specifier: workspace:*
         version: link:../codex
       '@claude-flow/mcp':
-        specifier: 3.0.0-alpha.8
-        version: 3.0.0-alpha.8
+        specifier: workspace:*
+        version: link:../mcp
       '@claude-flow/neural':
-        specifier: 3.0.0-alpha.9
+        specifier: workspace:*
         version: link:../neural
       '@claude-flow/plugin-agent-federation':
-        specifier: 1.0.0-alpha.18
+        specifier: workspace:*
         version: link:../plugin-agent-federation
       '@claude-flow/security':
-        specifier: 3.0.0-alpha.14
+        specifier: workspace:*
         version: link:../security
       '@claude-flow/shared':
-        specifier: 3.0.0-alpha.7
-        version: 3.0.0-alpha.7
+        specifier: workspace:*
+        version: link:../shared
       '@iarna/toml':
         specifier: ^2.2.5
         version: 2.2.5
@@ -188,7 +188,7 @@ importers:
         specifier: 2.0.0-alpha.5
         version: 2.0.0-alpha.5
       '@claude-flow/memory':
-        specifier: ^3.0.0-alpha.21
+        specifier: workspace:*
         version: link:../memory
       '@metaharness/darwin':
         specifier: ~0.9.0
@@ -230,7 +230,7 @@ importers:
   '@claude-flow/codex':
     dependencies:
       '@claude-flow/cli':
-        specifier: ^3.0.0
+        specifier: workspace:*
         version: link:../cli
       '@iarna/toml':
         specifier: ^2.2.5
@@ -273,7 +273,7 @@ importers:
   '@claude-flow/deployment':
     dependencies:
       '@claude-flow/shared':
-        specifier: ^3.0.0-alpha.1
+        specifier: workspace:*
         version: link:../shared
     devDependencies:
       semantic-release:
@@ -286,7 +286,7 @@ importers:
   '@claude-flow/embeddings':
     dependencies:
       '@claude-flow/shared':
-        specifier: ^3.0.0-alpha.1
+        specifier: workspace:*
         version: link:../shared
       '@huggingface/transformers':
         specifier: ^4.0.0
@@ -314,13 +314,13 @@ importers:
   '@claude-flow/guidance':
     dependencies:
       '@claude-flow/hooks':
-        specifier: ^3.0.0-alpha.7
+        specifier: workspace:*
         version: link:../hooks
       '@claude-flow/memory':
-        specifier: ^3.0.0-alpha.2
+        specifier: workspace:*
         version: link:../memory
       '@claude-flow/shared':
-        specifier: ^3.0.0-alpha.1
+        specifier: workspace:*
         version: link:../shared
     devDependencies:
       '@types/node':
@@ -336,16 +336,16 @@ importers:
   '@claude-flow/hooks':
     dependencies:
       '@claude-flow/memory':
-        specifier: ^3.0.0-alpha.2
+        specifier: workspace:*
         version: link:../memory
       '@claude-flow/neural':
-        specifier: ^3.0.0-alpha.2
+        specifier: workspace:*
         version: link:../neural
       '@claude-flow/security':
-        specifier: ^3.0.0-alpha.12
+        specifier: workspace:*
         version: link:../security
       '@claude-flow/shared':
-        specifier: ^3.0.0-alpha.1
+        specifier: workspace:*
         version: link:../shared
       zod:
         specifier: ^3.23.0
@@ -416,7 +416,7 @@ importers:
   '@claude-flow/memory':
     dependencies:
       '@claude-flow/security':
-        specifier: ^3.0.0-alpha.12
+        specifier: workspace:*
         version: link:../security
       agentdb:
         specifier: ^3.0.0-alpha.17
@@ -442,7 +442,7 @@ importers:
   '@claude-flow/neural':
     dependencies:
       '@claude-flow/memory':
-        specifier: ^3.0.0-alpha.16
+        specifier: workspace:*
         version: link:../memory
       '@ruvector/sona':
         specifier: 0.1.5
@@ -478,10 +478,10 @@ importers:
         version: 8.20.0
     devDependencies:
       '@claude-flow/security':
-        specifier: file:../security
-        version: file:@claude-flow/security
+        specifier: workspace:*
+        version: link:../security
       '@claude-flow/shared':
-        specifier: 3.0.0-alpha.8
+        specifier: workspace:*
         version: link:../shared
       '@types/ws':
         specifier: ^8.18.1
@@ -518,10 +518,10 @@ importers:
   '@claude-flow/plugins':
     dependencies:
       '@claude-flow/hooks':
-        specifier: ^3.0.0-alpha.2
+        specifier: workspace:*
         version: link:../hooks
       '@claude-flow/memory':
-        specifier: ^3.0.0-alpha.2
+        specifier: workspace:*
         version: link:../memory
       '@ruvector/learning-wasm':
         specifier: ^0.1.0
@@ -637,14 +637,14 @@ importers:
   '@claude-flow/testing':
     devDependencies:
       '@claude-flow/memory':
-        specifier: ^3.0.0-alpha.2
+        specifier: workspace:*
         version: link:../memory
       '@claude-flow/shared':
-        specifier: ^3.0.0-alpha.1
+        specifier: workspace:*
         version: link:../shared
       '@claude-flow/swarm':
-        specifier: ^3.0.0-alpha.1
-        version: 3.0.0-alpha.8
+        specifier: workspace:*
+        version: link:../swarm
       typescript:
         specifier: ^5.3.0
         version: 5.9.3
@@ -881,30 +881,6 @@ packages:
   /@borewit/text-codec@0.2.1:
     resolution: {integrity: sha512-k7vvKPbf7J2fZ5klGRD9AeKfUvojuZIQ3BT5u7Jfv+puwXkUBUT5PVyMDfJZpy30CBDXGMgw7fguK/lpOMBvgw==}
     requiresBuild: true
-
-  /@claude-flow/mcp@3.0.0-alpha.8:
-    resolution: {integrity: sha512-lP1t8GMWDl9RxnwMZrjMukZkyglhge7Znhj1PbUiUQ94kHcN+dAxUkA75HM1n7BONbIDcE/CS8qN2ril5KgzNg==}
-    dependencies:
-      ajv: 8.18.0
-      cors: 2.8.6
-      express: 5.2.1
-      helmet: 7.2.0
-      ws: 8.21.1
-    transitivePeerDependencies:
-      - bufferutil
-      - supports-color
-      - utf-8-validate
-    dev: false
-
-  /@claude-flow/shared@3.0.0-alpha.7:
-    resolution: {integrity: sha512-5iehTHguBFjlyZqy+fRoKfZVL/nFeE93A94nUUKJvu8y7AmhfpVqtQAZbmKztwQGJ5rv7iBb3Kwl1MUo3K5QkA==}
-    dependencies:
-      sql.js: 1.14.1
-    dev: false
-
-  /@claude-flow/swarm@3.0.0-alpha.8:
-    resolution: {integrity: sha512-yFmvL19vIHf6Cj2MkkYmHyiuUm6IQyBegxECNS6/OqtmCds9pY1uNrw2FpuKICZIIXCMvOfeE2fbimGxa9lvSA==}
-    dev: true
 
   /@cognitum-one/sdk@0.2.1(multicast-dns@7.2.5):
     resolution: {integrity: sha512-ZIYKq6Tqc7zcDQRSrxphm0Uji497Mf1bi7azn2aTM4F0k+IEdPpTmAngGVaXX/hR7DYhOQ5gkUCja0DiOJLOJw==}
@@ -1902,6 +1878,7 @@ packages:
     cpu: [arm64]
     os: [darwin]
     requiresBuild: true
+    dev: false
     optional: true
 
   /@napi-rs/keyring-darwin-x64@1.3.0:
@@ -1910,6 +1887,7 @@ packages:
     cpu: [x64]
     os: [darwin]
     requiresBuild: true
+    dev: false
     optional: true
 
   /@napi-rs/keyring-freebsd-x64@1.3.0:
@@ -1918,6 +1896,7 @@ packages:
     cpu: [x64]
     os: [freebsd]
     requiresBuild: true
+    dev: false
     optional: true
 
   /@napi-rs/keyring-linux-arm-gnueabihf@1.3.0:
@@ -1926,6 +1905,7 @@ packages:
     cpu: [arm]
     os: [linux]
     requiresBuild: true
+    dev: false
     optional: true
 
   /@napi-rs/keyring-linux-arm64-gnu@1.3.0:
@@ -1934,6 +1914,7 @@ packages:
     cpu: [arm64]
     os: [linux]
     requiresBuild: true
+    dev: false
     optional: true
 
   /@napi-rs/keyring-linux-arm64-musl@1.3.0:
@@ -1942,6 +1923,7 @@ packages:
     cpu: [arm64]
     os: [linux]
     requiresBuild: true
+    dev: false
     optional: true
 
   /@napi-rs/keyring-linux-riscv64-gnu@1.3.0:
@@ -1950,6 +1932,7 @@ packages:
     cpu: [riscv64]
     os: [linux]
     requiresBuild: true
+    dev: false
     optional: true
 
   /@napi-rs/keyring-linux-x64-gnu@1.3.0:
@@ -1958,6 +1941,7 @@ packages:
     cpu: [x64]
     os: [linux]
     requiresBuild: true
+    dev: false
     optional: true
 
   /@napi-rs/keyring-linux-x64-musl@1.3.0:
@@ -1966,6 +1950,7 @@ packages:
     cpu: [x64]
     os: [linux]
     requiresBuild: true
+    dev: false
     optional: true
 
   /@napi-rs/keyring-win32-arm64-msvc@1.3.0:
@@ -1974,6 +1959,7 @@ packages:
     cpu: [arm64]
     os: [win32]
     requiresBuild: true
+    dev: false
     optional: true
 
   /@napi-rs/keyring-win32-ia32-msvc@1.3.0:
@@ -1982,6 +1968,7 @@ packages:
     cpu: [ia32]
     os: [win32]
     requiresBuild: true
+    dev: false
     optional: true
 
   /@napi-rs/keyring-win32-x64-msvc@1.3.0:
@@ -1990,6 +1977,7 @@ packages:
     cpu: [x64]
     os: [win32]
     requiresBuild: true
+    dev: false
     optional: true
 
   /@napi-rs/keyring@1.3.0:
@@ -2009,10 +1997,12 @@ packages:
       '@napi-rs/keyring-win32-arm64-msvc': 1.3.0
       '@napi-rs/keyring-win32-ia32-msvc': 1.3.0
       '@napi-rs/keyring-win32-x64-msvc': 1.3.0
+    dev: false
     optional: true
 
   /@noble/ed25519@2.3.0:
     resolution: {integrity: sha512-M7dvXL2B92/M7dw9+gzuydL8qn/jiqNHaoR3Q+cb1q1GHV7uwE17WCyFMG+Y+TZb5izcaXk5TdJRrDUxHXL78A==}
+    dev: false
 
   /@noble/hashes@1.8.0:
     resolution: {integrity: sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A==}
@@ -7511,6 +7501,8 @@ packages:
     peerDependencies:
       typescript: '>=5.0.0'
     peerDependenciesMeta:
+      agentic-flow:
+        optional: true
       typescript:
         optional: true
     dependencies:
@@ -7844,6 +7836,7 @@ packages:
   /bcryptjs@3.0.3:
     resolution: {integrity: sha512-GlF5wPWnSa/X5LKM1o0wz0suXIINz1iHRLvTS+sLyi7XPbe5ycmYI3DlZqVGZZtDgl4DmasFg7gOB3JYbphV5g==}
     hasBin: true
+    dev: false
 
   /before-after-hook@3.0.2:
     resolution: {integrity: sha512-Nik3Sc0ncrMK4UUdXQmAnRtzmNQTAAXmXIopizwZ1W1t8QmfJj+zL4OA2I7XPTPW5z5TDqv4hRo/JzouDJnX3A==}
@@ -12293,6 +12286,9 @@ packages:
   /sqlite3@5.1.7:
     resolution: {integrity: sha512-GGIyOiFaG+TUra3JIfkI/zGP8yZYLPQ0pl1bH+ODjiX57sPhrLU5sQJn1y9bDKZUFYkX1crlrPfSYt0BKKdkog==}
     requiresBuild: true
+    peerDependenciesMeta:
+      node-gyp:
+        optional: true
     dependencies:
       bindings: 1.5.0
       node-addon-api: 7.1.1
@@ -13500,14 +13496,3 @@ packages:
 
   /zod@4.3.5:
     resolution: {integrity: sha512-k7Nwx6vuWx1IJ9Bjuf4Zt1PEllcwe7cls3VNzm4CQ1/hgtFUK2bRNG3rvnpPUhFjmqJKAKtjV576KnUkHocg/g==}
-
-  file:@claude-flow/security:
-    resolution: {directory: '@claude-flow/security', type: directory}
-    name: '@claude-flow/security'
-    dependencies:
-      '@noble/ed25519': 2.3.0
-      bcryptjs: 3.0.3
-      zod: 3.25.76
-    optionalDependencies:
-      '@napi-rs/keyring': 1.3.0
-    dev: true

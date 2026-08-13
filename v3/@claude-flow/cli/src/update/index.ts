@@ -7,6 +7,14 @@
  * - Compatibility validation before updates
  * - Rollback capability
  * - Update history logging
+ *
+ * FORK NOTE: this fork deliberately never pulls code from the npm registry
+ * at runtime by default — see docs/fork-maintenance.md. The silent startup
+ * path (runStartupUpdateCheck, invoked from every ordinary CLI command) is
+ * therefore opt-in, not opt-out: set CLAUDE_FLOW_AUTO_UPDATE=true to
+ * re-enable it. This does not affect the explicit `ruflo update check` /
+ * `ruflo update all` commands (src/commands/update.ts), which a user must
+ * deliberately invoke and which keep their existing behavior.
  */
 
 export {
@@ -68,6 +76,16 @@ export async function runStartupUpdateCheck(options: {
     updatesApplied: [] as string[],
     skippedReason: undefined as string | undefined,
   };
+
+  // Opt-in gate (fork default: OFF). Short-circuits before any registry
+  // contact — checkForUpdates() below is what actually calls
+  // registry.npmjs.org and, transitively, executeMultipleUpdates() is what
+  // runs `npm install` in process.cwd(). See the file-level FORK NOTE above.
+  const autoUpdateOptedIn = /^(1|true|on|yes)$/i.test(String(process.env.CLAUDE_FLOW_AUTO_UPDATE || ''));
+  if (!autoUpdateOptedIn) {
+    result.skippedReason = 'Auto-update is opt-in in this fork — set CLAUDE_FLOW_AUTO_UPDATE=true to enable (see docs/fork-maintenance.md)';
+    return result;
+  }
 
   try {
     const { results, skipped, reason } = await checkForUpdates(DEFAULT_CONFIG);

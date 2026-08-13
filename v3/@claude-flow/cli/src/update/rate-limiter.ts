@@ -68,7 +68,13 @@ export function shouldCheckForUpdates(
     return { allowed: false, reason: 'CI environment detected' };
   }
 
-  // Skip if explicitly disabled
+  // Skip if explicitly disabled. This function is shared by the explicit
+  // `ruflo update check` / `ruflo update all` commands (opt-out here, same
+  // as before) AND, transitively, by the silent startup path — but the
+  // startup path (runStartupUpdateCheck in ./index.ts) now has its own
+  // opt-IN gate ahead of this one, since this fork does not contact the
+  // npm registry by default. See the FORK NOTE in ./index.ts and
+  // docs/fork-maintenance.md.
   if (process.env.CLAUDE_FLOW_AUTO_UPDATE === 'false') {
     return { allowed: false, reason: 'Auto-update disabled via environment' };
   }

@@ -16,19 +16,29 @@
 import { createHash, verify as edVerify } from 'crypto';
 
 /**
- * Ruflo helper-signing PUBLIC key (safe to commit). The matching private key is
- * held out-of-repo and provided to scripts/sign-helpers.mjs at publish time via
- * $RUFLO_HELPERS_SIGNING_KEY. Rotating the key = replace this constant + re-sign.
+ * Helper-signing PUBLIC key (safe to commit). The matching private key is held
+ * out-of-repo and provided to scripts/sign-helpers.mjs via
+ * $RUFLO_HELPERS_SIGNING_KEY (default path `~/.ruflo/helpers-signing.key`).
+ * Rotating the key = replace this constant + re-sign.
  *
- * ROTATED 2026-07-14 (v3.29.0): the previous key was accidentally exposed in a
- * Claude Code session transcript. Old GCP secret version 1 was destroyed (not
- * disabled) so it cannot be re-enabled; new v2 generated here. Users on old
- * ruflo versions keep the old pubkey and verify old manifests successfully;
- * upgrading to v3.29.0+ atomically picks up this new pubkey along with the
- * new-key-signed manifest.
+ * ROTATED 2026-08-14 — FORK OWNERSHIP. This fork previously carried upstream's
+ * public key, which meant upstream-signed helpers verified as legitimate here
+ * and could overwrite hand-maintained ones. The private half of that pair is
+ * held by upstream, so trusting it made the fork's helper-provenance gate a
+ * gate on someone else's key. This key is ours; upstream-signed manifests now
+ * fail verification, which is the intended outcome. See docs/fork-maintenance.md
+ * and zsitthiporn/ruflo#2.
+ *
+ * Consequence to remember on every upstream rebase: a merge that restores
+ * upstream's constant silently re-opens that trust. It is on the rebase
+ * checklist for that reason.
+ *
+ * ROTATED 2026-07-14 (v3.29.0, upstream): the key before that was accidentally
+ * exposed in a session transcript; the old GCP secret version was destroyed.
+ * Kept here as history — that key is not ours either.
  */
 export const RUFLO_HELPERS_PUBKEY = `-----BEGIN PUBLIC KEY-----
-MCowBQYDK2VwAyEAyLl9cG+V/C+ffKWaSwvOsHdXSWmB5e3x1z9NUNvq6Ys=
+MCowBQYDK2VwAyEAUFffAZrLNl/wde2mwvjf15RtoXsoOISrTXQVNp+5hi0=
 -----END PUBLIC KEY-----`;
 
 export const HELPERS_MANIFEST_FILE = 'helpers.manifest.json';

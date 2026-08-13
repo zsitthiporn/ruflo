@@ -15,49 +15,101 @@ being silently reverted by upstream's own machinery.
 **Problem.** Nothing in the code distinguishes this fork from a stale upstream
 install. Two mechanisms make that dangerous:
 
-- **Helper auto-refresh** (`v3/@claude-flow/cli/src/init/helper-refresh.ts:222-256`)
+- **Helper auto-refresh** (`v3/@claude-flow/cli/src/init/helper-refresh.ts`)
   re-copies `hook-handler.cjs`, `intelligence.cjs`, `auto-memory-hook.mjs`, and
   `statusline.cjs` into `.claude/helpers/` from whichever `@claude-flow/cli` is
   resolvable, whenever that package's version stamp is newer. Copies are verified
-  against an Ed25519 public key hardcoded at
-  `v3/@claude-flow/cli/src/init/helper-signing.ts:18-30` — **inherited from
-  upstream and never rotated**, so registry-signed helpers verify fine and
-  overwrite fork-edited ones.
-- **Startup auto-update** (`v3/@claude-flow/cli/src/update/index.ts:56-114`) runs
+  against an Ed25519 public key hardcoded in
+  `v3/@claude-flow/cli/src/init/helper-signing.ts` — which, until 2026-08-14, was
+  **inherited from upstream and never rotated**, so upstream-signed helpers
+  verified fine and could overwrite fork-edited ones.
+
+  Precision worth keeping straight: this path makes **no network call**. It is a
+  local `copyFileSync` out of a resolved package. The exposure is supply-chain —
+  *that package* may have arrived from the registry — not a runtime registry hit.
+  Conflating the two sends you looking for network traffic that was never there.
+- **Startup auto-update** (`v3/@claude-flow/cli/src/update/index.ts`) is the one
+  that genuinely contacts the registry, then runs
   `npm install <pkg>@latest --save-exact` in `process.cwd()`
   (`update/executor.ts:127-140`) on most CLI invocations, for any package it can
   resolve from cwd.
+- **Proven-config refresh** (`src/config/proven-config-refresh.ts`, ADR-177) is a
+  third member of the same family, found 2026-08-14: it adopts a signed config
+  from whichever `@claude-flow/cli` resolves, and originally had no opt-out at
+  all — not even a `.LOCKED` equivalent.
 
 **Options considered.**
 
 | Option | What it is | Verdict |
 |---|---|---|
 | A1 — rename the package | Rename `@claude-flow/cli` to a private scope | **Rejected.** Blast radius across the monorepo's cross-references is large and buys nothing while we consume the fork by absolute path. |
-| A2 — rotate the helper signing key | Replace the hardcoded public key with our own pair, so registry-signed helpers fail verification | **Deferred — needs the owner's decision.** It is a clean, one-constant defense, but it edits security-sensitive code and would break the publish-time signing flow if this fork ever publishes. |
-| B — layered guards | `.LOCKED` markers, `CLAUDE_FLOW_AUTO_UPDATE=false`, never install the fork as a dependency | **Adopted now.** Covers the realistic threat model given how we actually consume the fork. |
+| A2 — rotate the helper signing key | Replace the hardcoded public key with our own pair, so registry-signed helpers fail verification | **Done 2026-08-14.** See below. |
+| B — layered guards | `.LOCKED` markers, `CLAUDE_FLOW_AUTO_UPDATE=false`, never install the fork as a dependency | **Adopted 2026-08-13.** Still in force as defence in depth. |
 
-**Decision (2026-08-13): adopt B now; A2 remains open for the owner.**
-Rationale: we invoke the fork by absolute path (`node <repo>/bin/cli.js`), never as
-an npm dependency, and Claude Code launches `mcp start` with piped stdio — a branch
-in `v3/@claude-flow/cli/bin/cli.js` that never imports the update or helper-refresh
-modules at all. The remaining exposure is a human running a CLI subcommand in a
-workspace where the registry package happens to be resolvable, which the guards
-below close.
+**Decision: B first (2026-08-13), then A2 (2026-08-14).** B alone was judged
+sufficient for how we consume the fork — by absolute path, never as an npm
+dependency, with Claude Code's `mcp start` taking a piped-stdio branch that
+never imports the update or helper-refresh modules. A2 was then done anyway,
+because B is a set of markers and env vars: it depends on nobody forgetting.
+A2 moves the guarantee into cryptography, which forgets nothing.
+
+### The rotation, and what it changed
+
+The fork previously shipped **upstream's** public key. Since upstream holds the
+matching private half, upstream-signed helpers verified as legitimate here and
+could overwrite hand-maintained ones — the provenance gate was a gate on someone
+else's key.
+
+A fork-owned Ed25519 pair now replaces it (`src/init/helper-signing.ts`). The
+private half lives at `~/.ruflo/helpers-signing.key` — outside the repo, never
+printed, which is the discipline the 2026-07-14 incident recorded in the root
+`CLAUDE.md` exists to enforce. `scripts/sign-helpers.mjs` reads that path by
+default, so signing needs no environment setup.
+
+Verified both directions against the re-signed manifest, reading the key from
+source rather than `dist/`:
+
+- the manifest **verifies** under the fork key — signing round-trip intact
+- the manifest **does not verify** under upstream's key — the isolation is real,
+  not asserted
+
+Two consequences worth remembering:
+
+- **`dist/` must be rebuilt** for the new key to be the one used at runtime;
+  `scripts/verify-helpers.mjs` deliberately imports the compiled key so it checks
+  what a user would actually trust.
+- **Back up `~/.ruflo/helpers-signing.key`.** Losing it means re-signing is
+  impossible without another rotation. It is not in the repo and not in any
+  secret manager.
 
 ---
 
 ## 2. Guards in place
 
-- **`.claude/helpers/.LOCKED`** — already present in this repo (predates this work).
-  Its mere existence short-circuits helper auto-refresh
-  (`helper-refresh.ts:238-240`). Do not delete it.
-- **`~/.claude/helpers/.LOCKED`** — added 2026-08-13. Auto-refresh runs a **second,
-  global pass** over `~/.claude/helpers/` (`helper-refresh.ts:258-276`), which the
-  project-level marker does not cover. This is the gap that was open.
-- **`RUFLO_HELPERS_LOCKED=1`** — env-level equivalent (`helper-refresh.ts:326-328`),
-  useful for one-off shells.
-- **`CLAUDE_FLOW_AUTO_UPDATE=false`** — disables the startup auto-updater
-  (`update/rate-limiter.ts:63-79`). Set it in every consuming workspace.
+**The defaults are now inverted in source (2026-08-14): these features are
+opt-IN, not opt-out.** A fresh workspace is safe without anyone remembering an
+environment variable — which matters, because the markers below only work if
+nobody forgets them.
+
+- **Auto-update** no-ops unless `CLAUDE_FLOW_AUTO_UPDATE` is set to a truthy
+  value (`1`/`true`/`on`/`yes`). Explicitly running `ruflo update check` still
+  works — deliberate: an update the user asked for is not the hazard.
+- **Helper auto-refresh** no-ops unless `RUFLO_HELPERS_AUTO_REFRESH` is truthy.
+  It returns silently rather than warning, because "not opted in" is the
+  expected state here, not an error.
+- **Proven-config refresh** is gated the same way.
+
+The older markers remain as defence in depth, behind those gates:
+
+- **`.claude/helpers/.LOCKED`** — predates this work; its existence
+  short-circuits the project pass. Do not delete it.
+- **`~/.claude/helpers/.LOCKED`** — added 2026-08-13. Auto-refresh runs a
+  **second, global pass** over `~/.claude/helpers/` that the project-level
+  marker does not cover. That was the open gap.
+- **`RUFLO_HELPERS_LOCKED=1`** — env-level equivalent, useful for one-off shells.
+
+Setting `CLAUDE_FLOW_AUTO_UPDATE=false` in consuming workspaces is now
+redundant but harmless; leave it as a belt on the braces.
 
 ---
 
@@ -71,6 +123,23 @@ upstream, so these are ours.
    compiled output. Both dependency trees must be installed: `npm install` at the
    repo root (npm workspaces) and `pnpm install` inside `v3/` (separate pnpm
    workspace).
+1a. **Use Node 20+ for anything that builds or tests.** This machine's default is
+   **v16.20.2**, below what the repo requires, and it fails in ways that look
+   like broken code rather than a broken environment: `fetch is not defined` in
+   scripts, and `crypto.getRandomValues is not a function` from Vite when running
+   the test suite. It blocked two agents in one session, one of which concluded —
+   wrongly — that no other Node was installed.
+
+   `nvm list` shows 22.22.3, 22.13.1, and 18.19.0 available. To avoid switching
+   the machine-wide version, call the binary directly:
+   `/c/Users/sitth/AppData/Local/nvm/v22.22.3/node.exe`, or prepend that
+   directory to `PATH` for one command. Vitest then runs normally
+   (`node node_modules/vitest/vitest.mjs run <file>`).
+1b. **Know the shell trap.** The documented form is `node bin/cli.js …` from the
+   repo root. Confirmed on this machine: in **Git Bash** the `node` shim fails
+   with `stdin is not a tty` and you must call `node.exe` explicitly.
+   **PowerShell** and cmd run `node` fine. This bit an agent that assumed a
+   failure here meant the build was broken — it was not.
 2. **Hand-write the MCP entry. Never run `ruflo init` in the target workspace.**
    Every generated config hardcodes `npx -y ruflo@latest mcp start`
    (`v3/@claude-flow/cli/src/init/mcp-generator.ts:64-77,118-135`), which resolves
@@ -146,7 +215,10 @@ closes. Run through this after each one:
 - [ ] `.claude/helpers/.LOCKED` still present, and `~/.claude/helpers/.LOCKED` too.
 - [ ] `git diff` on `.claude/helpers/**` is clean — if helpers changed, decide
       deliberately rather than accepting upstream's copies.
-- [ ] The signing-key decision (section 1, A2) still holds, or is revisited.
+- [ ] **`RUFLO_HELPERS_PUBKEY` in `src/init/helper-signing.ts` is still ours.** A
+      merge that restores upstream's constant silently re-opens the trust this
+      fork closed — and nothing will fail loudly when it does. Diff this
+      constant every single time.
 - [ ] Hub-and-spoke doctrine in `CLAUDE.md` and
       `v3/@claude-flow/cli/CLAUDE.md` survived the merge — upstream will keep
       reintroducing auto-swarm doctrine.
