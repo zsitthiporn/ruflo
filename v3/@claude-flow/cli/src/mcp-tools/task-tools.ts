@@ -27,6 +27,18 @@ interface TaskRecord {
   startedAt: string | null;
   completedAt: string | null;
   result?: Record<string, unknown>;
+  // #12 — previously collected by the CLI (`--parent`, `--dependencies`) and
+  // silently discarded because neither the schema nor storage accepted them.
+  // Persisted now so `store.json` is the honest record of what was declared
+  // at creation. NOT surfaced by task_status (see the comment there) — that
+  // read-path question (build dependency-graph tracking vs. drop the dead
+  // CLI display surface) is issue #12 item 3, left for the lead.
+  parentId?: string;
+  dependencies?: string[];
+  // CLI-attached provenance (e.g. { source: 'cli', createdBy: 'user' }).
+  // Not exposed via any CLI flag, so persisting it breaks no promise to a
+  // user; it was previously discarded the same as the other three fields.
+  metadata?: Record<string, unknown>;
 }
 
 interface TaskStore {
@@ -70,7 +82,7 @@ function saveTaskStore(store: TaskStore): void {
 export const taskTools: MCPTool[] = [
   {
     name: 'task_create',
-    description: 'Create a new task Use when native TodoWrite is wrong because you need cross-session task persistence, agent assignment, dependency tracking, or completion analytics in the .swarm/memory.db. For in-session checklists native TodoWrite is simpler and faster.',
+    description: 'Create a new task Use when native TodoWrite is wrong because you need cross-session task persistence, agent assignment, dependency tracking, or completion analytics, persisted to <cwd>/.claude-flow/tasks/store.json (a plain JSON file, not the .swarm/memory.db). For in-session checklists native TodoWrite is simpler and faster.',
     category: 'task',
     inputSchema: {
       type: 'object',
@@ -80,6 +92,12 @@ export const taskTools: MCPTool[] = [
         priority: { type: 'string', description: 'Task priority (low, normal, high, critical)' },
         assignTo: { type: 'array', items: { type: 'string' }, description: 'Agent IDs to assign' },
         tags: { type: 'array', items: { type: 'string' }, description: 'Task tags' },
+        // #12 — declared here now so the schema matches what the handler
+        // actually accepts and stores; previously these three were sent by
+        // the CLI but absent from both the schema and the handler.
+        parentId: { type: 'string', description: 'Parent task ID' },
+        dependencies: { type: 'array', items: { type: 'string' }, description: 'Task IDs that must complete before this task starts' },
+        metadata: { type: 'object', description: 'Arbitrary metadata to attach to the task' },
       },
       required: ['type', 'description'],
     },
@@ -105,6 +123,10 @@ export const taskTools: MCPTool[] = [
         createdAt: new Date().toISOString(),
         startedAt: null,
         completedAt: null,
+        // #12 — persist rather than silently discard (see TaskRecord comment).
+        ...(input.parentId ? { parentId: input.parentId as string } : {}),
+        ...(input.dependencies ? { dependencies: input.dependencies as string[] } : {}),
+        ...(input.metadata ? { metadata: input.metadata as Record<string, unknown> } : {}),
       };
 
       store.tasks[taskId] = task;
@@ -119,12 +141,14 @@ export const taskTools: MCPTool[] = [
         createdAt: task.createdAt,
         assignedTo: task.assignedTo,
         tags: task.tags,
+        parentId: task.parentId,
+        dependencies: task.dependencies,
       };
     },
   },
   {
     name: 'task_status',
-    description: 'Get task status Use when native TodoWrite is wrong because you need cross-session task persistence, agent assignment, dependency tracking, or completion analytics in the .swarm/memory.db. For in-session checklists native TodoWrite is simpler and faster.',
+    description: 'Get task status Use when native TodoWrite is wrong because you need cross-session task persistence, agent assignment, dependency tracking, or completion analytics, persisted to <cwd>/.claude-flow/tasks/store.json (a plain JSON file, not the .swarm/memory.db). For in-session checklists native TodoWrite is simpler and faster.',
     category: 'task',
     inputSchema: {
       type: 'object',
@@ -168,7 +192,7 @@ export const taskTools: MCPTool[] = [
   },
   {
     name: 'task_list',
-    description: 'List all tasks Use when native TodoWrite is wrong because you need cross-session task persistence, agent assignment, dependency tracking, or completion analytics in the .swarm/memory.db. For in-session checklists native TodoWrite is simpler and faster.',
+    description: 'List all tasks Use when native TodoWrite is wrong because you need cross-session task persistence, agent assignment, dependency tracking, or completion analytics, persisted to <cwd>/.claude-flow/tasks/store.json (a plain JSON file, not the .swarm/memory.db). For in-session checklists native TodoWrite is simpler and faster.',
     category: 'task',
     inputSchema: {
       type: 'object',
@@ -230,7 +254,7 @@ export const taskTools: MCPTool[] = [
   },
   {
     name: 'task_complete',
-    description: 'Mark task as complete Use when native TodoWrite is wrong because you need cross-session task persistence, agent assignment, dependency tracking, or completion analytics in the .swarm/memory.db. For in-session checklists native TodoWrite is simpler and faster.',
+    description: 'Mark task as complete Use when native TodoWrite is wrong because you need cross-session task persistence, agent assignment, dependency tracking, or completion analytics, persisted to <cwd>/.claude-flow/tasks/store.json (a plain JSON file, not the .swarm/memory.db). For in-session checklists native TodoWrite is simpler and faster.',
     category: 'task',
     inputSchema: {
       type: 'object',
@@ -295,7 +319,7 @@ export const taskTools: MCPTool[] = [
   },
   {
     name: 'task_update',
-    description: 'Update task status or progress Use when native TodoWrite is wrong because you need cross-session task persistence, agent assignment, dependency tracking, or completion analytics in the .swarm/memory.db. For in-session checklists native TodoWrite is simpler and faster.',
+    description: 'Update task status or progress Use when native TodoWrite is wrong because you need cross-session task persistence, agent assignment, dependency tracking, or completion analytics, persisted to <cwd>/.claude-flow/tasks/store.json (a plain JSON file, not the .swarm/memory.db). For in-session checklists native TodoWrite is simpler and faster.',
     category: 'task',
     inputSchema: {
       type: 'object',
@@ -350,7 +374,7 @@ export const taskTools: MCPTool[] = [
   },
   {
     name: 'task_assign',
-    description: 'Assign a task to one or more agents Use when native TodoWrite is wrong because you need cross-session task persistence, agent assignment, dependency tracking, or completion analytics in the .swarm/memory.db. For in-session checklists native TodoWrite is simpler and faster.',
+    description: 'Assign a task to one or more agents Use when native TodoWrite is wrong because you need cross-session task persistence, agent assignment, dependency tracking, or completion analytics, persisted to <cwd>/.claude-flow/tasks/store.json (a plain JSON file, not the .swarm/memory.db). For in-session checklists native TodoWrite is simpler and faster.',
     category: 'task',
     inputSchema: {
       type: 'object',
@@ -438,7 +462,7 @@ export const taskTools: MCPTool[] = [
   },
   {
     name: 'task_cancel',
-    description: 'Cancel a task Use when native TodoWrite is wrong because you need cross-session task persistence, agent assignment, dependency tracking, or completion analytics in the .swarm/memory.db. For in-session checklists native TodoWrite is simpler and faster.',
+    description: 'Cancel a task Use when native TodoWrite is wrong because you need cross-session task persistence, agent assignment, dependency tracking, or completion analytics, persisted to <cwd>/.claude-flow/tasks/store.json (a plain JSON file, not the .swarm/memory.db). For in-session checklists native TodoWrite is simpler and faster.',
     category: 'task',
     inputSchema: {
       type: 'object',

@@ -112,13 +112,13 @@ const createCommand: Command = {
       name: 'dependencies',
       description: 'Comma-separated task IDs that must complete first',
       type: 'string'
-    },
-    {
-      name: 'timeout',
-      description: 'Task timeout in seconds',
-      type: 'number',
-      default: 300
     }
+    // #12 — a `--timeout` flag used to live here. Removed: no code anywhere
+    // (this handler, task-tools.ts, or any task execution/worker path) ever
+    // reads a stored task's timeout for enforcement, and nothing displays it
+    // back. Offering the flag implied task-level timeout behavior that does
+    // not exist; storing an inert number nobody can see or that never fires
+    // is the same "success without truth" problem the flag's absence avoids.
   ],
   action: async (ctx: CommandContext): Promise<CommandResult> => {
     let taskType = ctx.flags.type as string;
@@ -173,15 +173,20 @@ const createCommand: Command = {
         createdAt: string;
         assignedTo?: string[];
         tags: string[];
+        parentId?: string;
+        dependencies?: string[];
       }>('task_create', {
         type: taskType,
         description,
         priority: priority || 'normal',
-        assignedTo: ctx.flags.assign ? [ctx.flags.assign] : undefined,
+        // #12 — task_create's handler (mcp-tools/task-tools.ts) reads
+        // `input.assignTo`, matching the tool's own declared inputSchema.
+        // This used to send `assignedTo`, a key the handler never looked at,
+        // so `--assign` silently created an unassigned task every time.
+        assignTo: ctx.flags.assign ? [ctx.flags.assign] : undefined,
         parentId: ctx.flags.parent,
         dependencies,
         tags,
-        timeout: ctx.flags.timeout,
         metadata: {
           source: 'cli',
           createdBy: 'user'
@@ -271,13 +276,21 @@ const listCommand: Command = {
     }
   ],
   action: async (ctx: CommandContext): Promise<CommandResult> => {
-    const status = ctx.flags.all ? 'all' : (ctx.flags.status as string) || 'pending,running';
+    // #9 — the underlying task_list handler (mcp-tools/task-tools.ts) treats
+    // `status` as a plain comma-separated allow-list and has no special case
+    // for the literal string 'all'; sending status:'all' filtered out every
+    // task (none has status === 'all'), so `--all` and `--status all` both
+    // printed "No tasks found". Omitting the field entirely is how that
+    // handler already spells "no status filter" — translate the sentinel
+    // here instead of teaching the handler a new keyword.
+    const rawStatus = ctx.flags.all ? 'all' : (ctx.flags.status as string) || 'pending,running';
+    const status = rawStatus === 'all' ? undefined : rawStatus;
     const limit = ctx.flags.limit as number;
 
     try {
       const result = await callMCPTool<{
         tasks: Array<{
-          id: string;
+          taskId: string;
           type: string;
           description: string;
           priority: string;
@@ -291,7 +304,10 @@ const listCommand: Command = {
         status,
         type: ctx.flags.type,
         priority: ctx.flags.priority,
-        agentId: ctx.flags.agent,
+        // #9 — the handler's filter reads `input.assignedTo`, not `agentId`;
+        // this was sending a key the handler never looks at, so `--agent`
+        // silently matched everything.
+        assignedTo: ctx.flags.agent,
         limit,
         offset: 0
       });
@@ -320,7 +336,10 @@ const listCommand: Command = {
           { key: 'progress', header: 'Progress', width: 10 }
         ],
         data: result.tasks.map(t => ({
-          id: t.id,
+          // #9 — task_list's handler returns each row keyed `taskId`, not
+          // `id`. Reading `t.id` here rendered a blank ID column even though
+          // the data was correct end-to-end.
+          id: t.taskId,
           type: t.type,
           description: t.description.length > 27
             ? t.description.slice(0, 27) + '...'
@@ -381,7 +400,10 @@ const statusCommand: Command = {
 
     try {
       const result = await callMCPTool<{
-        id: string;
+        // #9 — task_status's handler (mcp-tools/task-tools.ts) returns the
+        // record keyed `taskId`, not `id`; reading `result.id` printed
+        // "Task: undefined" even though the record was found correctly.
+        taskId: string;
         type: string;
         description: string;
         priority: string;
@@ -389,8 +411,12 @@ const statusCommand: Command = {
         progress: number;
         assignedTo?: string[];
         parentId?: string;
-        dependencies: string[];
-        dependents: string[];
+        // Marked optional: the handler never returns these two fields at
+        // all (the store schema has no dependency-graph tracking yet), so
+        // the `?.join(...)` guards below are load-bearing, not defensive
+        // boilerplate. Reported separately — out of scope for this fix.
+        dependencies?: string[];
+        dependents?: string[];
         tags: string[];
         createdAt: string;
         startedAt?: string;
@@ -424,7 +450,7 @@ const statusCommand: Command = {
           '',
           `Description: ${result.description}`
         ].join('\n'),
-        `Task: ${result.id}`
+        `Task: ${result.taskId}`
       );
 
       // Assignment info
