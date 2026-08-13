@@ -375,13 +375,13 @@ const statusCommand: Command = {
       name: 'id',
       description: 'Task ID',
       type: 'string'
-    },
-    {
-      name: 'logs',
-      description: 'Include execution logs',
-      type: 'boolean',
-      default: false
     }
+    // #13 — `--logs` was removed: nothing anywhere generates task execution
+    // logs, so the flag could never do more than request a field the
+    // handler would never populate. Same reasoning removed `dependents` and
+    // `metrics` below (no reverse-dependency index and no metrics collector
+    // exist either). `dependencies`, by contrast, is wired through — it's a
+    // direct read of a field task_create has persisted since #12.
   ],
   action: async (ctx: CommandContext): Promise<CommandResult> => {
     let taskId = ctx.args[0] || ctx.flags.id as string;
@@ -411,28 +411,19 @@ const statusCommand: Command = {
         progress: number;
         assignedTo?: string[];
         parentId?: string;
-        // Marked optional: the handler never returns these two fields at
-        // all (the store schema has no dependency-graph tracking yet), so
-        // the `?.join(...)` guards below are load-bearing, not defensive
-        // boilerplate. Reported separately — out of scope for this fix.
+        // #13 — task_status now returns this field for real (mcp-tools/
+        // task-tools.ts reads it straight off the stored record, persisted
+        // by task_create since #12). The `?.join(...)` guard below stays
+        // because an older store entry predating #12 may still lack it.
         dependencies?: string[];
-        dependents?: string[];
         tags: string[];
         createdAt: string;
         startedAt?: string;
         completedAt?: string;
         result?: unknown;
         error?: string;
-        logs?: Array<{ timestamp: string; level: string; message: string }>;
-        metrics?: {
-          executionTime: number;
-          retries: number;
-          tokensUsed: number;
-        };
       }>('task_status', {
         taskId,
-        includeLogs: ctx.flags.logs,
-        includeMetrics: true
       });
 
       if (ctx.flags.format === 'json') {
@@ -469,7 +460,6 @@ const statusCommand: Command = {
           { property: 'Assigned To', value: result.assignedTo?.join(', ') || 'Unassigned' },
           { property: 'Parent Task', value: result.parentId || 'None' },
           { property: 'Dependencies', value: result.dependencies?.join(', ') || 'None' },
-          { property: 'Dependents', value: result.dependents?.join(', ') || 'None' },
           { property: 'Tags', value: result.tags?.join(', ') || 'None' }
         ]
       });
@@ -489,40 +479,10 @@ const statusCommand: Command = {
         ]
       });
 
-      // Metrics
-      if (result.metrics) {
-        output.writeln();
-        output.writeln(output.bold('Metrics'));
-        output.printTable({
-          columns: [
-            { key: 'metric', header: 'Metric', width: 20 },
-            { key: 'value', header: 'Value', width: 20, align: 'right' }
-          ],
-          data: [
-            { metric: 'Execution Time', value: `${(result.metrics.executionTime / 1000).toFixed(2)}s` },
-            { metric: 'Retries', value: result.metrics.retries },
-            { metric: 'Tokens Used', value: result.metrics.tokensUsed.toLocaleString() }
-          ]
-        });
-      }
-
       // Error if failed
       if (result.status === 'failed' && result.error) {
         output.writeln();
         output.printError(`Error: ${result.error}`);
-      }
-
-      // Logs if requested
-      if (ctx.flags.logs && result.logs && result.logs.length > 0) {
-        output.writeln();
-        output.writeln(output.bold('Execution Logs'));
-        for (const log of result.logs.slice(-20)) {
-          const time = new Date(log.timestamp).toLocaleTimeString();
-          const level = log.level === 'error' ? output.error(`[${log.level}]`) :
-                        log.level === 'warn' ? output.warning(`[${log.level}]`) :
-                        output.dim(`[${log.level}]`);
-          output.writeln(`  ${output.dim(time)} ${level} ${log.message}`);
-        }
       }
 
       return { success: true, data: result };

@@ -23,10 +23,14 @@
  * store.json on disk — same discipline as
  * __tests__/task-command-round-trip-9.test.ts (the read-path sibling fix).
  *
- * Scope note: task_status intentionally still does NOT return `parentId` /
- * `dependencies` in its response (only in `store.json`, verified below via
- * direct file read). Wiring dependency/log/metric tracking into task_status
- * is issue #12 item 3 — a design decision left for the lead, not fixed here.
+ * Scope note (updated for #13): task_status now returns `dependencies` for
+ * real — it's a direct read of the field task_create has persisted since
+ * #12, verified below via both `store.json` and the task_status response.
+ * `parentId` is a separate, still-open case (task_status doesn't return it
+ * either; out of scope for #13, reported to the lead). `dependents`, task
+ * logs, and task metrics were removed from the CLI surface entirely (see
+ * commands/task.ts) rather than backed, because nothing anywhere generates
+ * any of the three.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
@@ -122,6 +126,12 @@ describe('#12 — task CLI write path: fields collected by the CLI must survive 
     // handler's return value, unlike task_status — see file header).
     expect((created.data as { parentId?: string }).parentId).toBe('task-parent-1');
     expect((created.data as { dependencies?: string[] }).dependencies).toEqual(['task-a', 'task-b']);
+
+    // #13 — task_status now surfaces `dependencies` too (not just storage
+    // and task_create's own echo). `parentId` is intentionally NOT asserted
+    // here: task_status still doesn't return it (see file header).
+    const status = await statusCmd.action!({ ...baseCtx(), args: [taskId] });
+    expect((status.data as { dependencies?: string[] }).dependencies).toEqual(['task-a', 'task-b']);
   });
 
   it('CLI-attached metadata survives to store.json (bug 2)', async () => {

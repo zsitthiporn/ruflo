@@ -223,6 +223,29 @@ correct earlier assumptions:
 
 ---
 
+## 3b. Deliberately not built
+
+Recorded so nobody rebuilds the case for them from scratch. Full reasoning in
+GitHub issue #6.
+
+- **A scheduled background daemon.** `daemon trigger -w <worker>` covers the same
+  ground on demand. A scheduled daemon writes memory, and concurrent writes to
+  this store are lost silently — it would be a second writer against a lock-free
+  store. The useful habit that survives: run `daemon trigger -w consolidate` once
+  after a large session.
+- **A semantic index over the knowledge vaults.** The vaults already carry a
+  deliberate retrieval design — `rag_include` / `retrieval_priority` frontmatter,
+  a built manifest, and a router whose instruction is *route once, read the
+  smallest focused note*. A chunk-similarity index pulls the opposite way, and two
+  retrieval systems that disagree are worse than one that occasionally misses.
+  Reopen if the vault router is observed misrouting in real use.
+- **A worklog generator from board state.** What makes a worklog worth reading is
+  judgement about what happened, not a list of task titles. The board holds the
+  titles; the titles are the cheap part.
+- **Real `teammate-idle` auto-assignment.** It contradicts the doctrine: the lead
+  routes work, and an auto-assigned task arrives without the ground-truth block or
+  the ownership boundary that make a dispatch safe.
+
 ## 4. Upstream rebase checklist
 
 Upstream is active. Every rebase or merge can re-open the drift this document

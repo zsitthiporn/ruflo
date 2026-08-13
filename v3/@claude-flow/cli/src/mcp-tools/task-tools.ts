@@ -175,6 +175,20 @@ export const taskTools: MCPTool[] = [
           progress: task.progress,
           priority: task.priority,
           assignedTo: task.assignedTo,
+          // #13 — `dependencies` is real: task_create has persisted it since
+          // #12 and this is a direct field read, not a computed/aggregated
+          // surface. `dependents` (reverse index), `logs`, and `metrics`
+          // were removed instead — nothing generates any of those anywhere
+          // in the codebase, so displaying them would just be permanent
+          // "None".
+          dependencies: task.dependencies || [],
+          // Same defect, same fix: `task create --parent` has stored this since
+          // #12 and `task status` has always rendered a "Parent Task" row, but
+          // the handler never returned it — so the row read "None" for every
+          // task that had one. Not part of #13's four-item table, folded in
+          // because shipping the identical bug next to its own fix is worse
+          // than a slightly wider change.
+          parentId: task.parentId,
           tags: task.tags,
           createdAt: task.createdAt,
           startedAt: task.startedAt,
