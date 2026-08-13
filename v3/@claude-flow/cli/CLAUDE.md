@@ -1,21 +1,39 @@
 # Claude Code Configuration - Claude Flow V3
 
-## 🚨 AUTOMATIC SWARM ORCHESTRATION
+## Hub-and-Spoke Orchestration
 
-**When starting work on complex tasks, Claude Code MUST automatically:**
+Full doctrine lives in the repo-root `CLAUDE.md`. The short version, which
+governs work in this package too:
 
-1. **Initialize the swarm** using CLI tools via Bash
-2. **Spawn concurrent agents** using Claude Code's Task tool
-3. **Coordinate via hooks** and memory
+- The main chat is the **team lead**: single voice to the user, dispatches
+  workers, reviews every report, owns the task board, performs merges.
+- Workers are isolated subagents that report **to the lead only**. No
+  worker-to-worker pipeline unless the lead sanctioned that specific hop.
+- There is no auto-initialized swarm, no complexity heuristic that spawns a
+  team by reflex, and no consensus round. The lead decides, item by item,
+  whether delegating is worth the cost — and often it is not.
+- **The CLI coordinates; Claude Code's Task tool executes.** A CLI or MCP call
+  records or advises. It never performs the implementation.
 
-### 🚨 CRITICAL: CLI + Task Tool in SAME Message
+### Workers must not invoke this CLI
 
-**When user says "spawn swarm" or requests complex work, Claude Code MUST in ONE message:**
-1. Call CLI tools via Bash to initialize coordination
-2. **IMMEDIATELY** call Task tool to spawn REAL working agents
-3. Both CLI and Task calls must be in the SAME response
+A subagent running `npx @claude-flow/cli …` inside the repo creates nested
+state directories and can trigger helper auto-refresh / auto-update, which has
+silently corrupted hand-maintained helper files mid-session before (see
+"Concurrent-session helper corruption" in the root `CLAUDE.md`). Every CLI
+invocation below is **lead-only**.
 
-**CLI coordinates, Task tool agents do the actual work!**
+### Coordination surfaces that report more than they do
+
+Verified against this package's source on this branch:
+
+| Surface | Advertised | Actual |
+|---------|------------|--------|
+| Task tools (`task_create` / `task_status` / `task_list`) | persistence in `.swarm/memory.db` | writes `<cwd>/.claude-flow/tasks/store.json`, plain JSON, **no write locking** — so only the lead writes the board, one lead session per workspace |
+| `hooks teammate-idle` | auto-assigns work to an idle teammate | stub returning hardcoded `action: 'waiting'`, `pendingTasks: 0` (#1916 follow-up) |
+| `hooks task-completed` | notifies the lead | `leadNotified` echoes the input flag; no message is delivered. `--train-patterns` learning is real |
+| `hooks session-end` | persists session state | writes no state file. The real path is the `session_save` tool |
+| MCP `worker-dispatch` | dispatches a background worker | needs a running daemon; with `background: false` it returns `synthetic-completed` **without executing anything**. The daemon-less one-shot is `daemon trigger -w <worker>` |
 
 ### 🤖 INTELLIGENT 3-TIER MODEL ROUTING (ADR-026, ADR-143)
 
@@ -51,115 +69,73 @@ Task({
 
 ---
 
-### 🛡️ Anti-Drift Config (PREFERRED)
+### `swarm init` — capability reference, not a step
 
-**Use this to prevent agent drift:**
-```bash
-# Small teams (6-8 agents) - use hierarchical for tight control
-npx @claude-flow/cli@latest swarm init --topology hierarchical --max-agents 8 --strategy specialized
-
-# Large teams (10-15 agents) - use hierarchical-mesh for V3 queen + peer communication
-npx @claude-flow/cli@latest swarm init --topology hierarchical-mesh --max-agents 15 --strategy specialized
-```
+`swarm init` exists and accepts these topologies. It is **not** part of the
+normal workflow here: hub-and-spoke needs no topology record, and initializing
+one does not cause any work to happen. Use it only when the user explicitly
+asks for swarm state.
 
 **Valid Topologies:**
-- `hierarchical` - Queen controls workers directly (anti-drift for small teams)
-- `hierarchical-mesh` - V3 queen + peer communication (recommended for 10+ agents)
+- `hierarchical` - Queen controls workers directly
+- `hierarchical-mesh` - V3 queen + peer communication
 - `mesh` - Fully connected peer network
 - `ring` - Circular communication pattern
 - `star` - Central coordinator with spokes
 - `hybrid` - Dynamic topology switching
 
-**Anti-Drift Guidelines:**
-- **hierarchical**: Coordinator catches divergence
-- **max-agents 6-8**: Smaller team = less drift
-- **specialized**: Clear roles, no overlap
-- **consensus**: raft (leader maintains state)
+**Team sizing (applies regardless):** 6-8 concurrent workers is the ceiling,
+one clear non-overlapping role each, short gated cycles — dispatch, report,
+lead verifies, next.
 
 ---
 
-### 🔄 Auto-Start Swarm Protocol (Background Execution)
+### Dispatching a worker
 
-When the user requests a complex task, **spawn agents in background and WAIT for completion:**
+Decide first whether to delegate at all. A single file, a small edit, a
+question, or an exploration whose next step depends on what you just read: do
+it inline. Delegate when the work is genuinely separable and the brief costs
+less than the task.
+
+When you do delegate, each worker's brief must stand alone — the worker cannot
+see this conversation:
 
 ```javascript
-// STEP 1: Initialize swarm coordination (anti-drift config)
-Bash("npx @claude-flow/cli@latest swarm init --topology hierarchical --max-agents 8 --strategy specialized")
+Task({
+  prompt: `<role>.
 
-// STEP 2: Spawn ALL agents IN BACKGROUND in a SINGLE message
-// Use run_in_background: true so agents work concurrently
-Task({
-  prompt: "Research requirements, analyze codebase patterns, store findings in memory",
-  subagent_type: "researcher",
-  description: "Research phase",
-  run_in_background: true  // ← CRITICAL: Run in background
-})
-Task({
-  prompt: "Design architecture based on research. Document decisions.",
-  subagent_type: "system-architect",
-  description: "Architecture phase",
-  run_in_background: true
-})
-Task({
-  prompt: "Implement the solution following the design. Write clean code.",
+GROUND TRUTH: <facts the lead already verified>
+YOUR TASK: <one bounded objective>
+OWNERSHIP: you own <explicit file list>. Nothing else — anything outside it is
+a finding to report, not an edit to make.
+CAPABILITY BOUNDARY: <read-only? may run tests? never runs the ruflo CLI.>
+REPORTING: report to the lead only; never to the user or another worker.
+WHAT COUNTS AS PROOF: <file:line, command output, test names>
+STOP CONDITIONS: <when to stop and report instead of pressing on>`,
   subagent_type: "coder",
-  description: "Implementation phase",
+  name: "parser",
   run_in_background: true
 })
-Task({
-  prompt: "Write comprehensive tests for the implementation.",
-  subagent_type: "tester",
-  description: "Testing phase",
-  run_in_background: true
-})
-Task({
-  prompt: "Review code quality, security, and best practices.",
-  subagent_type: "reviewer",
-  description: "Review phase",
-  run_in_background: true
-})
-
-// STEP 3: WAIT - Tell user agents are working, then STOP
-// Say: "I've spawned 5 agents to work on this in parallel. They'll report back when done."
-// DO NOT check status repeatedly. Just wait for user or agent responses.
 ```
 
-### ⏸️ CRITICAL: Spawn and Wait Pattern
+Dispatch items with non-overlapping ownership together so they run concurrently.
 
-**After spawning background agents:**
+### After dispatching
 
-1. **TELL USER** - "I've spawned X agents working in parallel on: [list tasks]"
-2. **STOP** - Do not continue with more tool calls
-3. **WAIT** - Let the background agents complete their work
-4. **RESPOND** - When agents return results, review and synthesize
+- Keep working on what the lead owns. Do not poll, do not re-check status, do
+  not ask whether to check.
+- When a report arrives, treat it as a **claim**. Verify anything load-bearing
+  against the code before acting on it or repeating it to the user.
+- The lead records progress on the board, performs the merge, and is the only
+  voice that answers the user.
 
-**Example response after spawning:**
-```
-I've launched 5 concurrent agents to work on this:
-- 🔍 Researcher: Analyzing requirements and codebase
-- 🏗️ Architect: Designing the implementation approach
-- 💻 Coder: Implementing the solution
-- 🧪 Tester: Writing tests
-- 👀 Reviewer: Code review and security check
+## 🧠 Learning and Memory Hooks (lead-invoked)
 
-They're working in parallel. I'll synthesize their results when they complete.
-```
+These are **optional, lead-only** commands — never something a worker runs, and
+not a mandatory step around every task. Reach for them when prior context would
+actually change the approach, or when a hard-won result is worth persisting.
 
-### 🚫 DO NOT:
-- Continuously check swarm status
-- Poll TaskOutput repeatedly
-- Add more tool calls after spawning
-- Ask "should I check on the agents?"
-
-### ✅ DO:
-- Spawn all agents in ONE message
-- Tell user what's happening
-- Wait for agent results to arrive
-- Synthesize results when they return
-
-## 🧠 AUTO-LEARNING PROTOCOL
-
-### Before Starting Any Task
+### Useful before starting a task
 ```bash
 # 1. Search memory for relevant patterns from past successes
 Bash("npx @claude-flow/cli@latest memory search --query '[task keywords]' --namespace patterns")
@@ -171,7 +147,7 @@ Bash("npx @claude-flow/cli@latest memory search --query '[task type]' --namespac
 Bash("npx @claude-flow/cli@latest hooks route --task '[task description]'")
 ```
 
-### After Completing Any Task Successfully
+### Useful after landing a verified change
 ```bash
 # 1. Store successful pattern for future reference
 Bash("npx @claude-flow/cli@latest memory store --namespace patterns --key '[pattern-name]' --value '[what worked]'")
@@ -197,67 +173,47 @@ Bash("npx @claude-flow/cli@latest hooks worker dispatch --trigger optimize")
 | Every 5+ file changes | `map` | Update codebase map |
 | Complex debugging | `deepdive` | Deep code analysis |
 
-### Memory-Enhanced Development
+### Worth a memory lookup
 
-**ALWAYS check memory before:**
-- Starting a new feature (search for similar implementations)
-- Debugging an issue (search for past solutions)
-- Refactoring code (search for learned patterns)
-- Performance work (search for optimization strategies)
+Search memory when prior context would change the approach — a feature
+resembling one already built, a bug with a plausible past solution, a
+refactor with an established pattern. Skip it when it would not.
 
-**ALWAYS store in memory after:**
-- Solving a tricky bug (store the solution pattern)
-- Completing a feature (store the approach)
-- Finding a performance fix (store the optimization)
-- Discovering a security issue (store the vulnerability pattern)
+Store to memory when the result was hard-won and would be expensive to
+rediscover: a non-obvious bug's root cause, a performance fix and why it
+worked, a vulnerability pattern. Not for routine changes.
 
-### 📋 Agent Routing (Anti-Drift)
+### 📋 Worker Selection
 
-| Code | Task | Agents |
-|------|------|--------|
-| 1 | Bug Fix | coordinator, researcher, coder, tester |
-| 3 | Feature | coordinator, architect, coder, tester, reviewer |
-| 5 | Refactor | coordinator, architect, coder, reviewer |
-| 7 | Performance | coordinator, perf-engineer, coder |
-| 9 | Security | coordinator, security-architect, auditor |
-| 11 | Docs | researcher, api-docs |
+Role shapes to reach for **once the lead has decided to delegate**. Not a
+mandatory roster — dispatch only what the item needs, often just one worker.
 
-**Codes 1-9: hierarchical/specialized (anti-drift). Code 11: mesh/balanced**
+| Work | Typical workers |
+|------|-----------------|
+| Bug fix | researcher, coder, tester |
+| Feature | architect, coder, tester, reviewer |
+| Refactor | architect, coder, reviewer |
+| Performance | perf-engineer, coder |
+| Security | security-architect, auditor |
+| Docs | researcher, api-docs |
 
-### 🎯 Task Complexity Detection
+The lead is the coordinator. Never dispatch a "coordinator" worker.
 
-**AUTO-INVOKE SWARM when task involves:**
-- Multiple files (3+)
-- New feature implementation
-- Refactoring across modules
-- API changes with tests
-- Security-related changes
-- Performance optimization
-- Database schema changes
-
-**SKIP SWARM for:**
-- Single file edits
-- Simple bug fixes (1-2 lines)
-- Documentation updates
-- Configuration changes
-- Quick questions/exploration
-
-## 🚨 CRITICAL: CONCURRENT EXECUTION & FILE MANAGEMENT
+## 🚨 CRITICAL: BATCHING & FILE MANAGEMENT
 
 **ABSOLUTE RULES**:
-1. ALL operations MUST be concurrent/parallel in a single message
-2. **NEVER save working files, text/mds and tests to the root folder**
-3. ALWAYS organize files in appropriate subdirectories
-4. **USE CLAUDE CODE'S TASK TOOL** for spawning agents concurrently, not just MCP
+1. **NEVER save working files, text/mds and tests to the root folder**
+2. ALWAYS organize files in appropriate subdirectories
+3. Batch genuinely independent operations into one message so they run
+   concurrently — but only when they are independent
+4. **USE CLAUDE CODE'S TASK TOOL** for execution; CLI/MCP only coordinates
 
-### ⚡ GOLDEN RULE: "1 MESSAGE = ALL RELATED OPERATIONS"
+### ⚡ Batch independent work, sequence dependent work
 
-**MANDATORY PATTERNS:**
-- **TodoWrite**: ALWAYS batch ALL todos in ONE call (5-10+ todos minimum)
-- **Task tool (Claude Code)**: ALWAYS spawn ALL agents in ONE message with full instructions
-- **File operations**: ALWAYS batch ALL reads/writes/edits in ONE message
-- **Bash commands**: ALWAYS batch ALL terminal operations in ONE message
-- **Memory operations**: ALWAYS batch ALL memory store/retrieve in ONE message
+Put independent calls in one message: parallel reads, non-overlapping searches,
+workers with disjoint ownership. Do **not** batch calls where a later one
+depends on an earlier one's result — that is how unverified assumptions get
+baked in. When in doubt about a dependency, sequence it.
 
 ### 📁 File Organization Rules
 
@@ -269,12 +225,10 @@ Bash("npx @claude-flow/cli@latest hooks worker dispatch --trigger optimize")
 - `/scripts` - Utility scripts
 - `/examples` - Example code
 
-## Project Config (Anti-Drift Defaults)
+## Project Config
 
-- **Topology**: hierarchical (prevents drift)
-- **Max Agents**: 8 (smaller = less drift)
-- **Strategy**: specialized (clear roles)
-- **Consensus**: raft
+- **Orchestration**: hub-and-spoke, one lead session per workspace
+- **Concurrent workers**: 6-8 ceiling
 - **Memory**: hybrid
 - **HNSW**: Enabled
 - **Neural**: Enabled
@@ -391,7 +345,7 @@ CVE remediation, input validation, path security:
 | `pre-task` | Record task start, get agent suggestions | `--description`, `--coordinate-swarm` |
 | `post-task` | Record task completion for learning | `--task-id`, `--success`, `--store-results` |
 | `session-start` | Start/restore session (v2 compat) | `--session-id`, `--auto-configure` |
-| `session-end` | End session and persist state | `--generate-summary`, `--export-metrics` |
+| `session-end` | End session, stop daemon, print a summary — **does not write a session state file** despite the name; use the `session_save` tool for that | `--generate-summary`, `--export-metrics` |
 | `session-restore` | Restore a previous session | `--session-id`, `--latest` |
 | `route` | Route task to optimal agent | `--task`, `--context`, `--top-k` |
 | `route-task` | (v2 compat) Alias for route | `--task`, `--auto-swarm` |
@@ -506,6 +460,10 @@ Features:
 
 ## 🐝 Hive-Mind Consensus
 
+Capability reference for the `hive-mind` command. **Not a default here** —
+hub-and-spoke has one lead and needs no consensus round. Use only on explicit
+user request.
+
 ### Topologies
 - `hierarchical` - Queen controls workers directly
 - `mesh` - Fully connected peer network
@@ -536,9 +494,9 @@ Features:
 
 ## 📊 Performance Optimization Protocol
 
-### Automatic Performance Tracking
+### Performance Tracking (lead-invoked)
 ```bash
-# After any significant operation, track metrics
+# Track metrics for an operation worth measuring — not a reflex after every call
 Bash("npx @claude-flow/cli@latest hooks post-command --command '[operation]' --track-metrics true")
 
 # Periodically run benchmarks (every major feature)
@@ -553,8 +511,10 @@ Bash("npx @claude-flow/cli@latest performance profile --target '[component]'")
 # At session start - restore previous context
 Bash("npx @claude-flow/cli@latest session restore --latest")
 
-# At session end - persist learned patterns
-Bash("npx @claude-flow/cli@latest hooks session-end --generate-summary true --persist-state true --export-metrics true")
+# At session end - summary + metrics. NOTE: session-end does NOT write a
+# session state file despite its flags. To actually persist session state,
+# use the `session_save` MCP tool.
+Bash("npx @claude-flow/cli@latest hooks session-end --generate-summary true --export-metrics true")
 ```
 
 ### Neural Pattern Training
@@ -640,6 +600,12 @@ npx @claude-flow/cli@latest doctor --fix
 - **Memory retrieve**: `npx @claude-flow/cli@latest memory retrieve --key "mykey" --namespace patterns`
 - **Hooks**: `npx @claude-flow/cli@latest hooks <hook-name> [options]`
 
+**This split is the load-bearing principle of this fork.** A CLI or MCP call
+records or advises; it never edits a file, runs a test, or lands a change. If a
+tool result claims work was performed, that is a bookkeeping entry, not
+evidence — verify against the code. All the commands above are **lead-only**;
+workers must not invoke this CLI.
+
 ## 📝 Memory Commands Reference (IMPORTANT)
 
 ### Store Data (ALL options shown)
@@ -711,21 +677,8 @@ ALWAYS prefer editing an existing file to creating a new one.
 NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested by the User.
 Never save working files, text/mds and tests to the root folder.
 
-## 🚨 SWARM EXECUTION RULES (CRITICAL)
-1. **SPAWN IN BACKGROUND**: Use `run_in_background: true` for all agent Task calls
-2. **SPAWN ALL AT ONCE**: Put ALL agent Task calls in ONE message for parallel execution
-3. **TELL USER**: After spawning, list what each agent is doing (use emojis for clarity)
-4. **STOP AND WAIT**: After spawning, STOP - do NOT add more tool calls or check status
-5. **NO POLLING**: Never poll TaskOutput or check swarm status - trust agents to return
-6. **SYNTHESIZE**: When agent results arrive, review ALL results before proceeding
-7. **NO CONFIRMATION**: Don't ask "should I check?" - just wait for results
+## Orchestration Rules
 
-Example spawn message:
-```
-"I've launched 4 agents in background:
-- 🔍 Researcher: [task]
-- 💻 Coder: [task]
-- 🧪 Tester: [task]
-- 👀 Reviewer: [task]
-Working in parallel - I'll synthesize when they complete."
-```
+See "Hub-and-Spoke Orchestration" at the top of this file, and the full
+doctrine in the repo-root `CLAUDE.md`. Deliberately not repeated here — two
+copies drift.
