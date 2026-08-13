@@ -76,11 +76,16 @@ upstream, so these are ours.
    (`v3/@claude-flow/cli/src/init/mcp-generator.ts:64-77,118-135`), which resolves
    to **upstream from the registry**, not this fork. The entry should invoke
    `node` with an absolute path to `<repo>/bin/cli.js`.
-3. **Pin both state roots.** Tasks and sessions honor `CLAUDE_FLOW_CWD`
-   (`v3/@claude-flow/cli-core/src/mcp-tools/types.ts:28-34`), but the memory root
-   resolves from raw `process.cwd()`
-   (`memory-initializer.ts:105-136`). Set `CLAUDE_FLOW_CWD` **and**
-   `CLAUDE_FLOW_MEMORY_PATH` to the workspace root, or state silently diverges.
+3. **Pin both state roots.** Set `CLAUDE_FLOW_CWD` **and** `CLAUDE_FLOW_MEMORY_PATH`
+   to the workspace root. **Verified by execution (2026-08-13):** with both pinned,
+   the task store, session files, and the memory database all land under the pinned
+   root even when the CLI is invoked from a different working directory — the feared
+   silent state split does not occur for those three. What *does* follow the raw
+   working directory is a set of ancillary files: `.claude-flow/policy/state.json`,
+   `proven-config.json`, `ruvector.db`, and a stale init-time `.claude/memory.db`
+   that does not carry stored values. Note that **any** invocation writes
+   `policy/state.json` into the raw cwd — even `--version` — which is the concrete
+   reason workers must never run the CLI from inside a repo folder.
 4. **Set `CLAUDE_FLOW_AUTO_UPDATE=false`**, and never `npm install` this fork as a
    dependency of the target workspace.
 5. **Workers never invoke the ruflo CLI.** A CLI call from inside a repo
@@ -105,6 +110,31 @@ Do not trust these; they are documented here so they are not rediscovered:
   The only daemon-less one-shot is the CLI `daemon trigger -w <worker>`.
 - The `embeddings chunk --file` flag is declared but never read
   (`src/commands/embeddings.ts:918-923`) — it silently chunks an empty string.
+- The CLI's own board **reads** are broken: `task list` renders a blank ID column,
+  `task status <id>` prints `Task: undefined`, and `task list --all` reports "No
+  tasks found" against a store that demonstrably holds tasks. Persistence is fine;
+  only the display path is broken. **Read the board through the MCP tools.**
+- `memory init` silently spawns a background daemon (`daemon start --workspace <cwd>`)
+  that nobody asked for. Check for and terminate strays after running it.
+
+### Verified by execution, 2026-08-13
+
+A spike ran the built fork against scratch workspaces on this machine. Results that
+correct earlier assumptions:
+
+- **Concurrent writes to the task store lose data silently.** With a large store and
+  16 parallel writers, 5 writes landed; the 15 that vanished each printed
+  `[OK] Task created` and exited 0. At realistic board sizes the loss could not be
+  forced — CLI startup stagger serialises launches — so treat this as a real hazard
+  that is merely hard to trigger, not as a safe path. **This is why only the lead
+  writes the board, and why one workspace gets exactly one lead session.**
+- **The sql.js lost-update concern (#2621) does not apply here.** Windows resolves
+  the native `better-sqlite3` provider with WAL enabled (live `-wal`/`-shm` sidecars,
+  header bytes `02 02`). The earlier suspicion was wrong.
+- **`session save` / `session restore` genuinely round-trips** across a fresh process.
+  `hooks session-end` still writes nothing while reporting a path — use `session save`.
+- **Per-project isolation via `CLAUDE_FLOW_CWD` works**: two scratch roots produced
+  entirely separate stores, each readable back from a third directory.
 
 ---
 
