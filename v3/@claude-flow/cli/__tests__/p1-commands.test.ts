@@ -151,29 +151,6 @@ vi.mock('../src/mcp-client.js', () => ({
       };
     }
 
-    if (toolName === 'task/status') {
-      return {
-        id: input.taskId,
-        type: 'implementation',
-        description: 'Add user authentication',
-        priority: 'high',
-        status: 'running',
-        progress: 50,
-        assignedTo: ['coder-1'],
-        parentId: null,
-        dependencies: [],
-        dependents: [],
-        tags: ['auth', 'security'],
-        createdAt: new Date().toISOString(),
-        startedAt: new Date().toISOString(),
-        metrics: {
-          executionTime: 60000,
-          retries: 0,
-          tokensUsed: 5000
-        }
-      };
-    }
-
     if (toolName === 'task/cancel') {
       return {
         taskId: input.taskId,
@@ -183,8 +160,19 @@ vi.mock('../src/mcp-client.js', () => ({
       };
     }
 
-    if (toolName === 'task/assign') {
+    // #17 — was 'task/assign' (v2-style slash naming); the real v3 tool name
+    // is 'task_assign' (mcp-tools/task-tools.ts), so this branch's condition
+    // never matched and the call fell through to this mock's `return {}`
+    // default. The non-skipped 'should unassign task' test below only
+    // passed because the pre-#17 CLI never checked its result for a
+    // `success` field before printing success — task.ts's own #17 fix now
+    // does, so an unmatched `{}` response fails the check. Renamed +
+    // `success: true` added to match the real handler's shape rather than
+    // deleted, since (unlike the sibling 'task/status' branch removed
+    // elsewhere in this file) the test it backs is live, not `it.skip`.
+    if (toolName === 'task_assign') {
       return {
+        success: true,
         taskId: input.taskId,
         assignedTo: input.agentIds || [],
         previouslyAssigned: []
@@ -749,18 +737,19 @@ describe('Task Command', () => {
   });
 
   describe('task status', () => {
-    it.skip('should get task status', async () => { // Skip: requires live MCP context
-      const statusCmd = taskCommand.subcommands?.find(c => c.name === 'status');
-      ctx.args = ['task-123'];
-
-      const result = await statusCmd!.action!(ctx);
-
-      expect(result.success).toBe(true);
-      expect(result.data).toHaveProperty('id');
-      expect(result.data).toHaveProperty('status');
-      expect(result.data).toHaveProperty('metrics');
-    });
-
+    // #17 — a `should get task status` test used to live here, mocking the
+    // tool as 'task/status' (v2-style slash naming). The real v3 tool name
+    // is 'task_status' (mcp-tools/task-tools.ts), so the mock's condition
+    // never matched even before this test was skipped — the call fell
+    // through to this file's `return {}` default, which would have failed
+    // the `toHaveProperty('id')` assertion on an empty object before ever
+    // reaching the `metrics` assertion, itself asserting a field #13 removed
+    // (nothing in the codebase generates task metrics). Deleted rather than
+    // repaired: the same coverage already exists for real, unmocked, against
+    // a live store.json, in task-command-round-trip-9.test.ts's "task status
+    // prints the real task ID..." test — resurrecting a mock-name-matched
+    // version of this test would just reintroduce the mock-based style this
+    // package has moved away from.
     it('should fail without task ID', async () => {
       const statusCmd = taskCommand.subcommands?.find(c => c.name === 'status');
 

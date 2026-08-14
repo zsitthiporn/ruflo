@@ -3465,7 +3465,7 @@ npx ruflo@latest hooks pretrain --depth deep --model-type moe
 | Hook | Purpose | Key Options |
 |------|---------|-------------|
 | `session-start` | Begin session, load context | `--session-id`, `--load-context`, `--start-daemon` |
-| `session-end` | End session, persist state | `--export-metrics`, `--persist-patterns`, `--stop-daemon` |
+| `session-end` | End session, record a summary in the memory store. **Writes no session-state file** despite the name — use the `session_save` tool for that | none (#17 removed the flags nothing read) |
 | `session-restore` | Resume previous session | `--session-id` or `latest` |
 | `notify` | Send cross-agent notification | `--message`, `--priority`, `--target` |
 
@@ -3474,7 +3474,7 @@ npx ruflo@latest hooks pretrain --depth deep --model-type moe
 npx ruflo@latest hooks session-start --session-id "feature-auth" --start-daemon
 
 # End session and export learnings
-npx ruflo@latest hooks session-end --export-metrics --persist-patterns
+node bin/cli.js hooks session-end
 ```
 
 #### 🤖 Intelligence System Hooks (9 hooks)
@@ -3576,7 +3576,7 @@ npx ruflo@latest hooks route "<task>" --include-explanation
 
 # Start/end session with learning
 npx ruflo@latest hooks session-start --start-daemon
-npx ruflo@latest hooks session-end --persist-patterns
+node bin/cli.js hooks session-end
 
 # View what the system has learned
 npx ruflo@latest hooks metrics

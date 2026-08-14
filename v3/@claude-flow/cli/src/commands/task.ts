@@ -557,14 +557,30 @@ const cancelCommand: Command = {
 
     try {
       const result = await callMCPTool<{
+        success: boolean;
         taskId: string;
-        cancelled: boolean;
-        previousStatus: string;
-        cancelledAt: string;
+        status?: string;
+        previousStatus?: string;
+        cancelledAt?: string;
+        error?: string;
       }>('task_cancel', {
         taskId,
         reason: reason || 'Cancelled by user via CLI'
       });
+
+      // #17 — mirrors #14's task_status fix: task_cancel's handler
+      // (mcp-tools/task-tools.ts) returns { success: false, error } rather
+      // than throwing for an unknown taskId (or a validation failure), so
+      // this used to fall straight into the success messages below and print
+      // "Task ... cancelled" / "Previous status: undefined" for a task that
+      // was never found.
+      if (!result.success) {
+        output.printError(`Failed to cancel task: ${result.error || 'unknown error'}`);
+        if (ctx.flags.format === 'json') {
+          output.printJson(result);
+        }
+        return { success: false, exitCode: 1, data: result };
+      }
 
       output.writeln();
       output.printSuccess(`Task ${taskId} cancelled`);
@@ -644,16 +660,28 @@ const assignCommand: Command = {
 
           // Continue with assignment
           const result = await callMCPTool<{
-            taskId: string;
-            assignedTo: string[];
-            previouslyAssigned: string[];
+            success: boolean;
+            taskId?: string;
+            assignedTo?: string[];
+            previouslyAssigned?: string[];
+            error?: string;
           }>('task_assign', {
             taskId,
             agentIds: selectedAgents
           });
 
+          // #17 — same shape as this file's task_cancel/task_retry fixes:
+          // task_assign's handler (mcp-tools/task-tools.ts) returns
+          // { success: false, error } rather than throwing for an unknown
+          // taskId, so this used to fall straight into
+          // `result.assignedTo.join(...)` on undefined and crash.
+          if (!result.success) {
+            output.printError(`Failed to assign task: ${result.error || 'unknown error'}`);
+            return { success: false, exitCode: 1, data: result };
+          }
+
           output.writeln();
-          output.printSuccess(`Task ${taskId} assigned to ${result.assignedTo.join(', ')}`);
+          output.printSuccess(`Task ${taskId} assigned to ${result.assignedTo!.join(', ')}`);
 
           return { success: true, data: result };
         } catch (error) {
@@ -671,20 +699,38 @@ const assignCommand: Command = {
 
     try {
       const result = await callMCPTool<{
-        taskId: string;
-        assignedTo: string[];
-        previouslyAssigned: string[];
+        success: boolean;
+        taskId?: string;
+        assignedTo?: string[];
+        previouslyAssigned?: string[];
+        error?: string;
       }>('task_assign', {
         taskId,
         agentIds: unassign ? [] : agentIds.split(',').map(id => id.trim()),
         unassign
       });
 
+      // #17 — mirrors #14's task_status fix and this file's own
+      // task_cancel/task_retry fixes above: task_assign's handler returns
+      // { success: false, error } rather than throwing for an unknown
+      // taskId, so this used to fall straight into the success messages
+      // below — `--unassign` printed "[OK] ... unassigned" and exited 0
+      // even though nothing was found, and the assign path crashed on
+      // `result.assignedTo.join(...)` (undefined), reporting the crash as
+      // an opaque "Unexpected error" instead of the real cause.
+      if (!result.success) {
+        output.printError(`Failed to assign task: ${result.error || 'unknown error'}`);
+        if (ctx.flags.format === 'json') {
+          output.printJson(result);
+        }
+        return { success: false, exitCode: 1, data: result };
+      }
+
       output.writeln();
       if (unassign) {
         output.printSuccess(`Task ${taskId} unassigned`);
       } else {
-        output.printSuccess(`Task ${taskId} assigned to ${result.assignedTo.join(', ')}`);
+        output.printSuccess(`Task ${taskId} assigned to ${result.assignedTo!.join(', ')}`);
       }
 
       if (ctx.flags.format === 'json') {
@@ -709,16 +755,16 @@ const retryCommand: Command = {
   aliases: ['rerun'],
   description: 'Retry a failed task',
   options: [
-    {
-      name: 'reset-state',
-      description: 'Reset task state completely',
-      type: 'boolean',
-      default: false
-    }
+    // #17 — a `--reset-state` flag used to live here. Removed: task_retry's
+    // handler (mcp-tools/task-tools.ts) always builds the retried record
+    // with progress:0 and no carried-over result regardless of any input, so
+    // the flag could never do more than request behavior nobody wired up —
+    // the same "declared but never consulted" defect #12 removed --timeout
+    // for. Its own description even disagreed with this flag's default
+    // (`(default true)` in the schema vs. `default: false` here).
   ],
   action: async (ctx: CommandContext): Promise<CommandResult> => {
     const taskId = ctx.args[0];
-    const resetState = ctx.flags['reset-state'] as boolean;
 
     if (!taskId) {
       output.printError('Task ID is required');
@@ -727,19 +773,33 @@ const retryCommand: Command = {
 
     try {
       const result = await callMCPTool<{
-        taskId: string;
-        newTaskId: string;
-        previousStatus: string;
-        status: string;
+        success: boolean;
+        taskId?: string;
+        newTaskId?: string;
+        previousStatus?: string;
+        status?: string;
+        error?: string;
       }>('task_retry', {
-        taskId,
-        resetState
+        taskId
       });
+
+      // #17 — mirrors #14's task_status fix and this file's own task_cancel
+      // fix above: task_retry's handler returns { success: false, error }
+      // rather than throwing for an unknown taskId, so this used to fall
+      // straight into the success messages below and print "Task ...
+      // retried" / "New task ID: undefined" for a task that was never found.
+      if (!result.success) {
+        output.printError(`Failed to retry task: ${result.error || 'unknown error'}`);
+        if (ctx.flags.format === 'json') {
+          output.printJson(result);
+        }
+        return { success: false, exitCode: 1, data: result };
+      }
 
       output.writeln();
       output.printSuccess(`Task ${taskId} retried`);
       output.printInfo(`New task ID: ${result.newTaskId}`);
-      output.printInfo(`Status: ${formatStatus(result.status)}`);
+      output.printInfo(`Status: ${formatStatus(result.status!)}`);
 
       if (ctx.flags.format === 'json') {
         output.printJson(result);

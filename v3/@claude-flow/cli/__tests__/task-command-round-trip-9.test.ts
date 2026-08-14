@@ -31,6 +31,8 @@ import type { CommandContext } from '../src/types.js';
 const createCmd = taskCommand.subcommands!.find(c => c.name === 'create')!;
 const listCmd = taskCommand.subcommands!.find(c => c.name === 'list')!;
 const statusCmd = taskCommand.subcommands!.find(c => c.name === 'status')!;
+const cancelCmd = taskCommand.subcommands!.find(c => c.name === 'cancel')!;
+const retryCmd = taskCommand.subcommands!.find(c => c.name === 'retry')!;
 
 function baseCtx(): CommandContext {
   return { args: [], flags: { _: [] }, cwd: '/test', interactive: false };
@@ -194,5 +196,78 @@ describe('#9 — task CLI read path against a store written by task create', () 
     } finally {
       stderrSpy.mockRestore();
     }
+  });
+
+  // #17 — task_cancel and task_retry's handlers (mcp-tools/task-tools.ts)
+  // return { success: false, error } for an unknown taskId rather than
+  // throwing, same as task_status did for #14. The CLI (commands/task.ts)
+  // never checked for it, so `task cancel`/`task retry <missing-id>` printed
+  // a false "cancelled"/"retried" success and exited 0.
+  it('#17 — task cancel on a missing id fails cleanly, not a false success', async () => {
+    const result = await cancelCmd.action!({
+      ...baseCtx(),
+      args: ['definitely-does-not-exist-cancel'],
+      flags: { force: true, _: [] },
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.exitCode).toBe(1);
+  });
+
+  it('#17 — task retry on a missing id fails cleanly, not a false success', async () => {
+    const result = await retryCmd.action!({
+      ...baseCtx(),
+      args: ['definitely-does-not-exist-retry'],
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.exitCode).toBe(1);
+  });
+
+  // #17 — task_cancel's handler never returned `previousStatus` on its
+  // *success* path either (only the not-found path was missing-id-specific);
+  // the CLI's "Previous status: ..." line read `undefined` off every real
+  // cancel, not just a missing one. Assert the real prior status survives.
+  it('#17 — task cancel on a real task returns the real previousStatus, not undefined', async () => {
+    const created = await createCmd.action!({
+      ...baseCtx(),
+      flags: { type: 'bug-fix', description: 'cancel should report my real prior status', priority: 'normal', _: [] },
+    });
+    const taskId = (created.data as { taskId: string }).taskId;
+
+    const result = await cancelCmd.action!({
+      ...baseCtx(),
+      args: [taskId],
+      flags: { force: true, _: [] },
+    });
+
+    expect(result.success).toBe(true);
+    expect((result.data as { previousStatus?: string }).previousStatus).toBe('pending');
+  });
+
+  // #17 — fixing the not-found short-circuit required checking
+  // `!result.success` in the CLI, but task_retry's success path never set
+  // `success: true` (only its two failure paths did). Without adding it,
+  // that guard would have misread every successful retry as a failure. This
+  // is the case that fix protects — guard it directly.
+  it('#17 — task retry on a real task still succeeds and returns a new task id', async () => {
+    const created = await createCmd.action!({
+      ...baseCtx(),
+      flags: { type: 'bug-fix', description: 'retry should still succeed after the success:true fix', priority: 'normal', _: [] },
+    });
+    const taskId = (created.data as { taskId: string }).taskId;
+
+    const result = await retryCmd.action!({ ...baseCtx(), args: [taskId] });
+
+    expect(result.success).toBe(true);
+    expect(result.exitCode).toBeUndefined();
+
+    const newTaskId = (result.data as { newTaskId?: string }).newTaskId;
+    expect(newTaskId).toBeDefined();
+    expect(newTaskId).toMatch(/^task-/);
+    expect(newTaskId).not.toBe(taskId);
+
+    const stored = JSON.parse(readFileSync(join(root, '.claude-flow', 'tasks', 'store.json'), 'utf-8'));
+    expect(stored.tasks[newTaskId!]).toBeDefined();
   });
 });

@@ -355,7 +355,7 @@ CVE remediation, input validation, path security:
 | `pre-task` | Record task start, get agent suggestions | `--description`, `--coordinate-swarm` |
 | `post-task` | Record task completion for learning | `--task-id`, `--success`, `--store-results` |
 | `session-start` | Start/restore session (v2 compat) | `--session-id`, `--auto-configure` |
-| `session-end` | End session, stop daemon, print a summary — **does not write a session state file** despite the name; use the `session_save` tool for that | `--generate-summary`, `--export-metrics` |
+| `session-end` | End session, stop daemon, record a summary in the memory store — **writes no session-state file** despite the name; use the `session_save` tool for that | none — the flags nothing read were removed in #17 |
 | `session-restore` | Restore a previous session | `--session-id`, `--latest` |
 | `route` | Route task to optimal agent | `--task`, `--context`, `--top-k` |
 | `route-task` | (v2 compat) Alias for route | `--task`, `--auto-swarm` |
@@ -402,7 +402,7 @@ node bin/cli.js hooks post-edit --file "[file]" --train-neural true
 
 # Session management
 node bin/cli.js hooks session-start --session-id "[id]"
-node bin/cli.js hooks session-end --export-metrics true
+node bin/cli.js hooks session-end
 node bin/cli.js hooks session-restore --session-id "[id]"
 
 # Intelligence routing
@@ -523,7 +523,7 @@ Bash("node bin/cli.js session restore --latest")
 # At session end - summary + metrics. NOTE: session-end does NOT write a
 # session state file despite its flags. To actually persist session state,
 # use the `session_save` MCP tool.
-Bash("node bin/cli.js hooks session-end --generate-summary true --export-metrics true")
+Bash("node bin/cli.js hooks session-end")
 ```
 
 ### Neural Pattern Training

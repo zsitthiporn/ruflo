@@ -784,7 +784,7 @@ node bin/cli.js hooks post-edit --file "[file]" --train-patterns
 
 # Session management
 node bin/cli.js hooks session-start --session-id "[id]"
-node bin/cli.js hooks session-end --export-metrics true
+node bin/cli.js hooks session-end
 node bin/cli.js hooks session-restore --session-id "[id]"
 
 # Intelligence routing

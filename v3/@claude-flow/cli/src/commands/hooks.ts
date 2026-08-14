@@ -2252,18 +2252,9 @@ const postTaskCommand: Command = {
 const sessionEndCommand: Command = {
   name: 'session-end',
   description: 'End current session and record its summary in the memory store — no session-state file is written to disk despite the historical name; use the `session_save` tool for that',
-  options: [
-    {
-      name: 'save-state',
-      short: 's',
-      description: 'Record the session summary in the memory store (session-restore reads from the memory store, not from a state file)',
-      type: 'boolean',
-      default: true
-    }
-  ],
+  options: [],
   examples: [
-    { command: 'claude-flow hooks session-end', description: 'End session, record summary in memory store' },
-    { command: 'claude-flow hooks session-end --save-state false', description: 'End session without recording summary' }
+    { command: 'claude-flow hooks session-end', description: 'End session, record summary in memory store' }
   ],
   action: async (ctx: CommandContext): Promise<CommandResult> => {
     output.printInfo('Ending session...');
@@ -2281,7 +2272,6 @@ const sessionEndCommand: Command = {
           agentsSpawned: number;
         };
       }>('hooks_session-end', {
-        saveState: ctx.flags.saveState ?? true,
         timestamp: Date.now(),
       });
 

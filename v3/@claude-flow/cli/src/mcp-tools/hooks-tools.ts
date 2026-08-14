@@ -2253,13 +2253,10 @@ export const hooksSessionEnd: MCPTool = {
   inputSchema: {
     type: 'object',
     properties: {
-      saveState: { type: 'boolean', description: 'Include the session summary in the memory-store write (does not write a file; see session_save for that)' },
-      exportMetrics: { type: 'boolean', description: 'Export session metrics' },
       stopDaemon: { type: 'boolean', description: 'Stop worker daemon (default: true)' },
     },
   },
   handler: async (params: Record<string, unknown>) => {
-    const saveState = params.saveState !== false;
     const shouldStopDaemon = params.stopDaemon !== false;
     const sessionId = `session-${Date.now() - 3600000}`; // Default session (1 hour ago)
 
@@ -2295,6 +2292,33 @@ export const hooksSessionEnd: MCPTool = {
       // File not available
     }
 
+    // #17: hooks_post-task (unconditionally, see hooksPostTask) appends a
+    // { type: 'task-outcome', metadata: { success } } row to auto-memory-store.json
+    // for every completed task — a real source for the succeeded/failed split the
+    // summary below used to declare and never fill in.
+    let tasksSucceeded = 0;
+    let tasksFailed = 0;
+    try {
+      const autoMemoryPath = join(getProjectCwd(), '.claude-flow', 'data', 'auto-memory-store.json');
+      if (existsSync(autoMemoryPath)) {
+        const parsed = JSON.parse(readFileSync(autoMemoryPath, 'utf-8'));
+        const outcomes = Array.isArray(parsed) ? parsed.filter((e: any) => e?.type === 'task-outcome') : [];
+        for (const entry of outcomes) {
+          if (entry?.metadata?.success) tasksSucceeded++;
+          else tasksFailed++;
+        }
+      }
+    } catch {
+      // File not available
+    }
+
+    // hooks_post-command writes namespace: 'commands' entries into this same
+    // store.json — but only on its JSON-store fallback path (when the AgentDB
+    // bridge write throws); a command recorded via AgentDB won't show up here.
+    // Same limitation as taskCount/agentCount/patternCount above — best-effort
+    // from local JSON state, not a full cross-backend count.
+    const commandsExecuted = allEntries.filter(e => e.namespace === 'commands').length;
+
     // Phase 5: Wire ReflexionMemory session end + NightlyLearner consolidation via bridge
     let sessionPersistence: { controller: string; persisted: boolean } | null = null;
     let bridge: typeof import('../memory/memory-bridge.js') | null = null;
@@ -2302,7 +2326,7 @@ export const hooksSessionEnd: MCPTool = {
       bridge = await import('../memory/memory-bridge.js');
       const result = await bridge.bridgeSessionEnd({
         sessionId,
-        summary: saveState ? 'Session ended with state saved' : 'Session ended',
+        summary: 'Session ended',
         tasksCompleted: taskCount,
         patternsLearned: patternCount,
       });
@@ -2332,6 +2356,9 @@ export const hooksSessionEnd: MCPTool = {
       sessionPersistence: sessionPersistence || { controller: 'none', persisted: false },
       summary: {
         tasksExecuted: taskCount,
+        tasksSucceeded,
+        tasksFailed,
+        commandsExecuted,
         filesModified: 0,
         agentsSpawned: agentCount,
         pendingInsights: insightCount,

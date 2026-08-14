@@ -409,7 +409,13 @@ export const taskTools: MCPTool[] = [
       const task = store.tasks[taskId];
 
       if (!task) {
-        return { taskId, error: 'Task not found' };
+        // #17 — same defect class as task_cancel/task_retry: this used to
+        // return no `success` field at all on not-found, so the CLI's
+        // `--unassign` path (which never checked for one) printed
+        // "[OK] ... unassigned" and exited 0, and the assign path crashed on
+        // `result.assignedTo.join(...)` (undefined) and reported the crash
+        // as an opaque "Unexpected error" instead of the real cause.
+        return { success: false, taskId, error: 'Task not found' };
       }
 
       const previouslyAssigned = [...task.assignedTo];
@@ -467,6 +473,10 @@ export const taskTools: MCPTool[] = [
       writeFileSync(agentStorePath, JSON.stringify(agentStore, null, 2), 'utf-8');
 
       return {
+        // #17 — explicit for the same reason task_retry's success path
+        // needed it: a CLI-side `!result.success` guard must not misread a
+        // real success as a failure just because the field was never set.
+        success: true,
         taskId: task.taskId,
         assignedTo: task.assignedTo,
         previouslyAssigned,
@@ -500,6 +510,12 @@ export const taskTools: MCPTool[] = [
       const task = store.tasks[taskId];
 
       if (task) {
+        // #17 — capture the pre-cancel status before overwriting it. Without
+        // this, the CLI's `Previous status: ${result.previousStatus}` (which
+        // this handler's declared return type has always promised) had no
+        // field to read and printed "undefined" on every cancel, not just a
+        // missing-id one.
+        const previousStatus = task.status;
         task.status = 'cancelled';
         task.completedAt = new Date().toISOString();
         task.result = { cancelReason: input.reason || 'Cancelled by user' };
@@ -509,6 +525,7 @@ export const taskTools: MCPTool[] = [
           success: true,
           taskId: task.taskId,
           status: task.status,
+          previousStatus,
           cancelledAt: task.completedAt,
         };
       }
@@ -528,11 +545,17 @@ export const taskTools: MCPTool[] = [
     name: 'task_retry',
     description: 'Re-queue a failed/cancelled/completed task by cloning its spec into a fresh pending task (the original record is kept as history). Carries over parentId and dependencies — the retry is the same unit of work re-queued, so its place in the hierarchy and what must finish before it starts are unchanged. Does NOT carry over metadata: that field records how the original was created (e.g. { source, createdBy }), a fact about that creation event, not this one; the retry\'s own lineage is recorded honestly via a retry-of:<taskId> tag instead. Use when native TodoWrite is wrong because you need the original task\'s persisted spec (type, priority, assignees, tags, parent, dependencies) and a stable taskId chain across runs rather than hand-retyping a checklist item. For ad-hoc re-runs, native TodoWrite is fine.',
     category: 'task',
+    // #17 — a `resetState` input used to be declared here. Removed: the
+    // handler below always builds the retried record with progress:0 and no
+    // carried-over result, regardless of any flag — the same "declared but
+    // never consulted" defect #12 removed `--timeout` for, and its
+    // description's own "(default true)" didn't even agree with the CLI
+    // flag's actual default of false. Wiring it to conditionally preserve
+    // the old progress/result would be a new feature, not this fix's scope.
     inputSchema: {
       type: 'object',
       properties: {
         taskId: { type: 'string', description: 'ID of the task to retry' },
-        resetState: { type: 'boolean', description: 'Reset progress/result on the new task (default true)' },
       },
       required: ['taskId'],
     },
@@ -581,6 +604,12 @@ export const taskTools: MCPTool[] = [
       saveTaskStore(store);
 
       return {
+        // #17 — the failure paths above already return `success: false`;
+        // this path never returned `success` at all, so a truthiness check
+        // like `!result.success` in the CLI would misclassify every
+        // successful retry as a failure. Made explicit for the same reason
+        // task_cancel's success path already declares it.
+        success: true,
         taskId,
         newTaskId,
         previousStatus: original.status,

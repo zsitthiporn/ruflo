@@ -19,7 +19,7 @@ describe('hooks session-end native resource cleanup (#2691)', () => {
   });
 
   it('shuts down the memory bridge after persisting a session', async () => {
-    const result = await hooksSessionEnd.handler({ saveState: false, stopDaemon: false });
+    const result = await hooksSessionEnd.handler({ stopDaemon: false });
 
     expect(bridgeSessionEnd).toHaveBeenCalledOnce();
     expect(shutdownBridge).toHaveBeenCalledOnce();
@@ -28,12 +28,21 @@ describe('hooks session-end native resource cleanup (#2691)', () => {
     });
     // Issue #15: statePath pointed at a file nothing wrote or read; removed.
     expect(result).not.toHaveProperty('statePath');
+    // Issue #17: saveState/exportMetrics were declared but never gated or read
+    // anything real; removed. tasksSucceeded/tasksFailed/commandsExecuted were
+    // declared by the CLI's result type but never populated by this handler —
+    // now wired to real (if best-effort) local-store counts instead of undefined.
+    expect(result.summary).toMatchObject({
+      tasksSucceeded: expect.any(Number),
+      tasksFailed: expect.any(Number),
+      commandsExecuted: expect.any(Number),
+    });
   });
 
   it('still shuts down a partially initialized bridge when persistence fails', async () => {
     bridgeSessionEnd.mockRejectedValueOnce(new Error('native initialization failed'));
 
-    const result = await hooksSessionEnd.handler({ saveState: false, stopDaemon: false });
+    const result = await hooksSessionEnd.handler({ stopDaemon: false });
 
     expect(shutdownBridge).toHaveBeenCalledOnce();
     expect(result).toMatchObject({
