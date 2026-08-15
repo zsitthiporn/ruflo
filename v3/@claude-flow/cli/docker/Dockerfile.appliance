@@ -25,6 +25,22 @@ WORKDIR /build
 # --omit=optional: skip heavy native deps (onnxruntime, better-sqlite3, etc.)
 # --ignore-scripts: skip postinstall scripts that may compile native addons
 # These keep the image under the 100MB target.
+# ── FORK GUARD ───────────────────────────────────────────────────────────────
+# `npm install -g ruflo@latest` installs the package published on the public
+# npm registry — UPSTREAM's build, not this fork. An image built from this
+# repo would therefore run a different codebase than the repo it was built
+# from, and the container worker pool would dispatch into it. This fork
+# publishes nothing; it is consumed by local path (docs/fork-maintenance.md).
+#
+# Building an upstream image is still legitimate — it just has to be asked
+# for: docker build --build-arg RUFLO_ALLOW_UPSTREAM_INSTALL=1 …
+ARG RUFLO_ALLOW_UPSTREAM_INSTALL=0
+RUN if [ "$RUFLO_ALLOW_UPSTREAM_INSTALL" != "1" ]; then \
+      echo "Refusing to install ruflo from the npm registry: that is upstream's build, not this fork."; \
+      echo "Rebuild with --build-arg RUFLO_ALLOW_UPSTREAM_INSTALL=1 to install it anyway,"; \
+      echo "or COPY this repo's own build into the image instead."; \
+      exit 1; \
+    fi
 RUN npm install -g ruflo@latest \
       --omit=optional \
       --ignore-scripts \

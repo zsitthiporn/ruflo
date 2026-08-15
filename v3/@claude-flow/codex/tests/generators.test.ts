@@ -732,8 +732,11 @@ describe('generateConfigToml', () => {
       const result = await generateConfigToml({ platform: 'linux' });
 
       expect(result).toContain('[mcp_servers.ruflo]');
-      expect(result).toContain('command = "npx"');
-      expect(result).toContain(`args = ["-y", "ruflo@latest", "mcp", "start"]`);
+      // The registry form (`npx -y ruflo@latest`) resolves upstream's published
+      // build, not this fork's — see resolveLocalRufloCli in src/mcp-config.ts.
+      expect(result).toContain('command = "node"');
+      expect(result).toContain('bin/cli.js", "mcp", "start"]');
+      expect(result).not.toMatch(/npx|@latest/);
       expect(result).toContain('enabled = true');
     });
 
@@ -1009,11 +1012,16 @@ describe('generateCIConfigToml', () => {
     expect(result).toContain('persistence = "none"');
   });
 
-  it('should generate a Windows-safe Ruflo MCP command with startup headroom', async () => {
+  it('generates a Ruflo MCP command with startup headroom that never hits the registry', async () => {
     const result = await generateCIConfigToml('win32');
 
-    expect(result).toContain('command = "cmd"');
-    expect(result).toContain('args = ["/c", "npx", "-y", "ruflo@latest", "mcp", "start"]');
+    // Was `cmd /c npx -y ruflo@latest` — the cmd wrapper existed only because
+    // npx is a shim on Windows. `node` is a real executable everywhere, and
+    // the entry is this checkout's own bin/cli.js rather than the published
+    // package (which is upstream's build).
+    expect(result).toContain('command = "node"');
+    expect(result).toContain('bin/cli.js", "mcp", "start"]');
+    expect(result).not.toMatch(/npx|@latest/);
     expect(result).toContain('startup_timeout_sec = 120');
     expect(result).toContain('tool_timeout_sec = 300');
   });

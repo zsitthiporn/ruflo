@@ -100,9 +100,10 @@ function persistToMemory(summary) {
   // SQLite/HNSW; semantic search degrades to substring (fine for cost-track
   // which never invokes search — only store/list/retrieve). See
   // v3/@claude-flow/cli-core/MIGRATION.md.
-  const cliPkg = process.env.CLI_CORE === '1'
-    ? '@claude-flow/cli-core@alpha'
-    : '@claude-flow/cli@latest';
+  // The leading package spec is vestigial: spawnNpxSync drops it and resolves
+  // this fork's CLI locally (RUFLO_CLI_ENTRY, else the `ruflo` binary). Kept as a
+  // placeholder so the existing argv shape at call sites does not churn.
+  const cliPkg = 'ruflo-local';
   // spawnSync with explicit args avoids shell-escape pitfalls for the JSON value.
   const r = spawnNpxSync([
     cliPkg, 'memory', 'store',

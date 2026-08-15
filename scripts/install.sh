@@ -23,6 +23,35 @@
 
 set -euo pipefail
 
+# ── FORK GUARD ────────────────────────────────────────────────────────────────
+# This installer is upstream's: it curls from cdn.jsdelivr.net/gh/ruvnet/... and
+# then `npm install -g ruflo` / `npx -y ruflo`, all of which resolve the package
+# PUBLISHED ON THE NPM REGISTRY — upstream's build, not this fork. Running it
+# from this checkout installs a different codebase than the one you are reading,
+# which is exactly what docs/fork-maintenance.md exists to prevent.
+#
+# This fork publishes nothing and is consumed by absolute local path. The script
+# is kept (rather than deleted) because it is still the correct installer for
+# upstream's package, and because a future release train would need it back.
+if [ "${RUFLO_ALLOW_UPSTREAM_INSTALL:-}" != "1" ]; then
+  cat >&2 <<'GUARD'
+Refusing to run: this installs the `ruflo` package from the npm registry,
+which is UPSTREAM's build — not this fork.
+
+This fork is consumed by local path. To use it from another workspace:
+
+  1. Build it here:   npm install && (cd v3 && pnpm install) && pnpm --filter @claude-flow/cli build
+  2. In the target workspace's .mcp.json:
+       { "mcpServers": { "claude-flow": {
+           "command": "node",
+           "args": ["<abs path to this repo>/bin/cli.js", "mcp", "start"] } } }
+  3. Full procedure: docs/fork-maintenance.md §3 (consuming-workspace contract)
+
+To install upstream's published package anyway:  RUFLO_ALLOW_UPSTREAM_INSTALL=1 …
+GUARD
+  exit 1
+fi
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'

@@ -622,10 +622,10 @@
       },
       {
         "id": "#1825",
-        "desc": "hotfix: workspace: protocol leak in cli optionalDependencies",
+        "desc": "superseded by this fork: the `workspace:` protocol was RESTORED for cli optionalDependencies. Upstream's #1825 hotfix replaced it with a semver range, which let pnpm resolve @claude-flow/memory from the public registry (upstream's build) rather than the local package — 3 such substitutions were found live in a green build on 2026-08-14. See docs/fork-maintenance.md and the registry-decoupling note in Ruflo-Knowledge/05_SECURITY/.",
         "file": "v3/@claude-flow/cli/package.json",
         "sha256": "38bb257d5b5ad2d035b9772d479d65dcb5d52c98acc66bcb857e7bb2c5eb5975",
-        "marker": "\"@claude-flow/memory\": \"^3.0.0-alpha.",
+        "marker": "\"@claude-flow/memory\": \"workspace:*\"",
         "markerVerified": true
       },
       {
@@ -894,10 +894,10 @@
       },
       {
         "id": "#1921-shim",
-        "desc": "scripts/ruflo-hook.sh — resilient invoker shipped in each plugin (.claude-plugin/, plugin/, plugins/ruflo-core/): prefers a local `ruflo`/`claude-flow` binary, else `npx --prefer-offline --yes ruflo@latest`, always `exit 0`. stdin (hook event JSON) passes through unchanged. Companion to #1921.",
+        "desc": "scripts/ruflo-hook.sh — resilient invoker shipped in each plugin (.claude-plugin/, plugin/, plugins/ruflo-core/): uses a local `ruflo`/`claude-flow` binary, otherwise does nothing, always `exit 0`. stdin (hook event JSON) passes through unchanged. The registry fallback it used to end in was removed for this fork — it resolved upstream's published build, so a best-effort telemetry hook silently executed a different codebase on every PreToolUse. Companion to #1921.",
         "file": "plugins/ruflo-core/scripts/ruflo-hook.sh",
         "sha256": "66f2c736e9383557c280c23a82a1f310f6dcf4ff36bf0d5043bea439c495ac3b",
-        "marker": "npx --prefer-offline --yes ruflo@latest hooks",
+        "marker": "command -v claude-flow >/dev/null 2>&1",
         "markerVerified": true
       },
       {

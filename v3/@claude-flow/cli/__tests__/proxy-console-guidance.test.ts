@@ -51,8 +51,10 @@ describe('bare proxy console guidance', () => {
 
     expect(result).toMatchObject({ success: true, data: { installed: true, running: false } });
     expect(lines).toContain('Meta Proxy');
-    expect(lines).toContain('npx ruflo@latest proxy start --service');
-    expect(lines).toContain('npx ruflo@latest auth login');
+    expect(lines).toContain('proxy start --service');
+    expect(lines).not.toMatch(/npx|@latest/);
+    expect(lines).toContain('auth login');
+    expect(lines).not.toMatch(/npx|@latest/);
     expect(lines).not.toContain('Sponsored downtime consent');
     expect(lines).not.toContain('Rate-limit flag');
   });
@@ -61,7 +63,8 @@ describe('bare proxy console guidance', () => {
     const { proxyConsoleGuidance } = await import('../src/commands/proxy-lifecycle.js');
     const lines = proxyConsoleGuidance({ installed: false, running: false, pid: null, stalePidFile: false }).join('\n');
 
-    expect(lines).toContain('npx ruflo@latest proxy install --yes');
+    expect(lines).toContain('proxy install --yes');
+    expect(lines).not.toMatch(/npx|@latest/);
     expect(lines).toContain('Meta-Proxy v0.4.0');
     expect(lines).not.toContain('auth login');
   });

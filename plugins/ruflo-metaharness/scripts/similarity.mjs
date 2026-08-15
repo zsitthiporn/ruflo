@@ -28,9 +28,15 @@ import { spawnSync } from 'node:child_process';
 import { similarity } from './_similarity.mjs';
 
 const NS = process.env.HARNESS_SIMILARITY_NAMESPACE || 'metaharness-audit';
-const CLI_PKG = process.env.CLI_CORE === '1'
-  ? '@claude-flow/cli-core@alpha'
-  : '@claude-flow/cli@latest';
+// FORK NOTE: this used to name a registry package (`@claude-flow/cli@latest`)
+// and run it through `npx`, i.e. UPSTREAM's published build rather than this
+// fork's. The plugin now invokes the local CLI: RUFLO_CLI_ENTRY (absolute path
+// to this checkout's bin/cli.js) when set, otherwise the `ruflo` binary on
+// PATH. Neither resolves anything from the npm registry. See
+// docs/fork-maintenance.md §3.
+const CLI_ENTRY = process.env.RUFLO_CLI_ENTRY || null;
+const CLI_BIN = CLI_ENTRY ? process.execPath : 'ruflo';
+const CLI_PREFIX = CLI_ENTRY ? [CLI_ENTRY] : [];
 
 const ARGS = (() => {
   const a = {
@@ -66,8 +72,8 @@ function emitDegradedAndExit(reason, code = 2) {
 }
 
 function memRetrieve(key) {
-  const r = spawnSync('npx', [
-    CLI_PKG, 'memory', 'retrieve',
+  const r = spawnSync(CLI_BIN, [
+    ...CLI_PREFIX, 'memory', 'retrieve',
     '--namespace', NS, '--key', key,
   ], { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf-8', shell: process.platform === 'win32' });
   if (r.status !== 0) return null;

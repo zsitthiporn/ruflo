@@ -482,7 +482,7 @@ describe('convertSettingsToToml', () => {
     const result = convertSettingsToToml(settings, 'linux');
 
     expect(result).toContain('[mcp_servers.ruflo]');
-    expect(result).toContain('args = ["-y", "ruflo@latest", "mcp", "start"]');
+    expect(result).toContain('bin/cli.js", "mcp", "start"]');
     expect(result).toContain('startup_timeout_sec = 120');
     expect(result).toContain('[mcp_servers.custom-server]');
     expect(result).toContain('command = "node"');
@@ -495,8 +495,8 @@ describe('convertSettingsToToml', () => {
 
     expect(result).toContain('[mcp_servers.custom]');
     expect(result).toContain('[mcp_servers.ruflo]');
-    expect(result).toContain('command = "cmd"');
-    expect(result).toContain('args = ["/c", "npx", "-y", "ruflo@latest", "mcp", "start"]');
+    expect(result).toContain('command = "node"');
+    expect(result).toContain('bin/cli.js", "mcp", "start"]');
   });
 
   it('should add default ruflo server when no mcpServers', () => {
@@ -508,7 +508,7 @@ describe('convertSettingsToToml', () => {
 
     // The implementation adds a default ruflo server when none specified
     expect(result).toContain('[mcp_servers.ruflo]');
-    expect(result).toContain('command = "npx"');
+    expect(result).toContain('command = "node"');
   });
 
   it('should handle empty settings', () => {

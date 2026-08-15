@@ -299,7 +299,14 @@ export class OfficialHooksBridge {
    * Create a CLI command for a V3 hook handler
    */
   static createCLICommand(event: HookEvent, handler: string): string {
-    const baseCommand = 'npx claude-flow@alpha hooks';
+    // Was `npx claude-flow@alpha hooks` — a registry resolve on every hook
+    // fire, of upstream's published build rather than this fork's. These
+    // commands are written into a settings file and run on every tool call,
+    // so they must name a local invocation. `RUFLO_CLI_ENTRY` (absolute path
+    // to this checkout's bin/cli.js) is preferred; otherwise the `ruflo`
+    // binary already on PATH. Neither reaches the registry.
+    const entry = process.env.RUFLO_CLI_ENTRY;
+    const baseCommand = entry ? `node ${entry} hooks` : 'ruflo hooks';
 
     switch (event) {
       case HookEvent.PreEdit:

@@ -6,27 +6,29 @@ import {
   hasExpectedRufloMcpTimeout,
   hasExpectedRufloMcpTransport,
   renderMcpServerToml,
+  resolveLocalRufloCli,
   upsertMcpServerStartupTimeout,
 } from '../src/mcp-config.js';
 
 describe('Ruflo Codex MCP configuration', () => {
-  it('uses cmd /c to resolve npx on Windows', () => {
-    expect(getRufloMcpServerConfig('win32')).toMatchObject({
-      command: 'cmd',
-      args: ['/c', 'npx', '-y', 'ruflo@latest', 'mcp', 'start'],
-      startupTimeout: 120,
-    });
-    expect(getRufloMcpAddCommand('win32')).toBe(
-      'codex mcp add ruflo -- cmd /c npx -y ruflo@latest mcp start',
-    );
-  });
+  it('runs this checkout\'s own CLI, never the registry package', () => {
+    const entry = resolveLocalRufloCli();
+    expect(entry).toMatch(/@claude-flow\/cli\/bin\/cli\.js$/);
 
-  it('uses npx directly on POSIX systems', () => {
-    expect(getRufloMcpServerConfig('linux')).toMatchObject({
-      command: 'npx',
-      args: ['-y', 'ruflo@latest', 'mcp', 'start'],
-      startupTimeout: 120,
-    });
+    for (const platform of ['win32', 'linux'] as const) {
+      const config = getRufloMcpServerConfig(platform);
+      expect(config).toMatchObject({
+        command: 'node',
+        args: [entry, 'mcp', 'start'],
+        startupTimeout: 120,
+      });
+      // Regression guard for the fork's core invariant: no registry resolve.
+      expect(JSON.stringify(config)).not.toMatch(/npx|@latest/);
+    }
+
+    expect(getRufloMcpAddCommand('win32')).toBe(
+      `codex mcp add ruflo -- node ${entry} mcp start`,
+    );
   });
 
   it('launches npm Codex shims through cmd.exe on Windows', () => {
@@ -49,7 +51,7 @@ describe('Ruflo Codex MCP configuration', () => {
 
   it('renders both startup and tool timeouts', () => {
     const toml = renderMcpServerToml(getRufloMcpServerConfig('win32', 300)).join('\n');
-    expect(toml).toContain('command = "cmd"');
+    expect(toml).toContain('command = "node"');
     expect(toml).toContain('startup_timeout_sec = 120');
     expect(toml).toContain('tool_timeout_sec = 300');
   });
@@ -59,16 +61,18 @@ describe('Ruflo Codex MCP configuration', () => {
       name: 'ruflo',
       transport: {
         type: 'stdio',
-        command: 'cmd',
-        args: ['/c', 'npx', '-y', 'ruflo@latest', 'mcp', 'start'],
+        command: 'node',
+        args: [resolveLocalRufloCli(), 'mcp', 'start'],
       },
       startup_timeout_sec: 120,
     };
     expect(hasExpectedRufloMcpTransport(current, 'win32')).toBe(true);
     expect(hasExpectedRufloMcpTimeout(current)).toBe(true);
+    // The pre-fork registration — `npx -y ruflo@latest` — must now read as
+    // stale so an existing Codex config gets migrated off the registry.
     expect(hasExpectedRufloMcpTransport({
       ...current,
-      transport: { type: 'stdio', command: 'npx', args: ['ruflo', 'mcp', 'start'] },
+      transport: { type: 'stdio', command: 'cmd', args: ['/c', 'npx', '-y', 'ruflo@latest', 'mcp', 'start'] },
     }, 'win32')).toBe(false);
   });
 

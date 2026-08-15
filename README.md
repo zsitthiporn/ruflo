@@ -162,34 +162,56 @@ This adds slash commands and agent definitions only. The Ruflo MCP server is NOT
 
 ### CLI Install
 
-**macOS / Linux / WSL / Git-Bash:**
+> **This fork is consumed by local path, not from the npm registry.** The
+> `ruflo` / `claude-flow` / `@claude-flow/*` names on npmjs.com are published
+> by upstream, so `npx ruflo@latest` and `npm install -g ruflo` install a
+> *different codebase* than the one in this repository. Every install path
+> below therefore builds this checkout and points at it directly. Full
+> rationale and the consuming-workspace contract:
+> [`docs/fork-maintenance.md`](docs/fork-maintenance.md) §3.
+
+**All platforms:**
 
 ```bash
-# One-line install (POSIX shells only — see Windows note below)
-curl -fsSL https://cdn.jsdelivr.net/gh/ruvnet/ruflo@main/scripts/install.sh | bash
+# 1. Build this checkout (two dependency trees — npm at the root, pnpm in v3/)
+npm install
+cd v3 && pnpm install && pnpm --filter @claude-flow/cli build && cd ..
+
+# 2. Verify
+node bin/cli.js --version
 ```
 
-**All platforms (including native Windows PowerShell / cmd):**
+Then invoke it by path — `node <path-to-this-repo>/bin/cli.js <command>` — or
+put a thin wrapper on your `PATH` named `ruflo` that does the same. Several
+plugin scripts look for exactly that binary, or for `RUFLO_CLI_ENTRY` set to
+the absolute path of `bin/cli.js`.
 
-```bash
-# Interactive setup wizard — runs identically on every platform
-npx ruflo@latest init wizard
-
-# Quick non-interactive init
-# npx ruflo@latest init
-
-# Or install globally
-npm install -g ruflo@latest
-```
-
-> 💡 **Windows users:** the `curl ... | bash` form needs a POSIX shell (Git-Bash, WSL, MSYS). The `npx ruflo@latest init wizard` line works natively in PowerShell and cmd. If you hit an `'bash' is not recognized` error, use the `npx` line instead — both end up running the same init flow.
+> 💡 **Windows:** PowerShell and cmd run `node bin/cli.js …` fine. In **Git
+> Bash** the `node` shim fails with `stdin is not a tty` — use `node.exe` there.
 
 ### MCP Server
 
-```bash
-# Add Ruflo as an MCP server in Claude Code (canonical form, matches USERGUIDE.md)
-claude mcp add ruflo -- npx ruflo@latest mcp start
+Write the entry by hand in the target workspace's `.mcp.json`; do **not** run
+`ruflo init` for this, since its generator historically wrote the registry
+form:
+
+```json
+{
+  "mcpServers": {
+    "claude-flow": {
+      "command": "node",
+      "args": ["<absolute path to this repo>/bin/cli.js", "mcp", "start"],
+      "env": {
+        "CLAUDE_FLOW_CWD": "<absolute path to the target workspace>",
+        "CLAUDE_FLOW_MEMORY_PATH": "<absolute path to the target workspace>"
+      }
+    }
+  }
+}
 ```
+
+The registration key stays `claude-flow` so the `mcp__claude-flow__*` tool
+references in the plugins keep resolving.
 
 ---
 

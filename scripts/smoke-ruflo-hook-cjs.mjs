@@ -126,24 +126,32 @@ console.log(`Shim path: ${SHIM_PATH}\n`);
   assert(!hasNodeError, 'No unhandled Node.js error on stderr');
 }
 
-// Test 10: dist-tag parity — .cjs shims + .sh shim must reference the same ruflo@<tag>
-// (Regression guard for #2600 — .cjs drifted to ruflo@latest while .sh used ruflo@alpha.)
+// Test 10: no shim resolves the CLI from the npm registry.
+//
+// This replaces the old dist-tag parity guard (#2600 — the .cjs had drifted to
+// ruflo@latest while the .sh used ruflo@alpha). Parity is moot now that the
+// correct number of registry references is zero: `npx ruflo@<tag>` resolves
+// UPSTREAM's published build, not this fork's, so a hook firing on every
+// PreToolUse would silently execute a different codebase. The shims now use a
+// local `ruflo`/`claude-flow` binary or do nothing. Comments are stripped
+// before matching so the files can still explain why the fallback is gone.
 {
-  const tagRe = /ruflo@([a-z0-9][a-z0-9._-]*)/i;
-  const extractTag = (p) => {
-    const m = readFileSync(p, 'utf8').match(tagRe);
-    return m ? m[1] : null;
-  };
-  const tags = SHIM_PAIRS.map(([shellPath, nodePath]) => ({
-    directory: dirname(shellPath),
-    shell: extractTag(shellPath),
-    node: extractTag(nodePath),
-  }));
-  const expectedTag = tags[0]?.shell;
-  const allMatch = Boolean(expectedTag) && tags.every(
-    ({ shell, node }) => shell === expectedTag && node === expectedTag,
+  const stripComments = (src, kind) => (kind === 'sh'
+    ? src.replace(/^\s*#.*$/gm, '')
+    : src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, ''));
+
+  const offenders = [];
+  for (const [shellPath, nodePath] of SHIM_PAIRS) {
+    for (const [p, kind] of [[shellPath, 'sh'], [nodePath, 'cjs']]) {
+      const code = stripComments(readFileSync(p, 'utf8'), kind);
+      const hits = [...code.matchAll(/ruflo@[a-z0-9][a-z0-9._-]*|npx/gi)].map((m) => m[0]);
+      if (hits.length > 0) offenders.push({ file: p, hits: [...new Set(hits)] });
+    }
+  }
+  assert(
+    offenders.length === 0,
+    `no shim resolves the CLI from the registry: ${JSON.stringify(offenders)}`,
   );
-  assert(allMatch, `dist-tag parity across all shim pairs: ${JSON.stringify(tags)}`);
 }
 
 console.log(`\nResults: ${passed} passed, ${failed} failed`);

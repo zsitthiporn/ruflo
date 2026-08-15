@@ -4,6 +4,7 @@
  * Handles cross-platform compatibility (Windows requires cmd /c wrapper)
  */
 
+import { resolveLocalCliEntry } from './types.js';
 import type { InitOptions, MCPConfig } from './types.js';
 
 /**
@@ -14,7 +15,25 @@ function isWindows(): boolean {
 }
 
 /**
- * Generate platform-specific MCP server entry
+ * MCP server entry that runs this fork's own CLI by absolute path.
+ * No `npx`, no registry resolution, no cmd wrapper (node is on PATH as a
+ * real executable on every platform, unlike the npx shim).
+ */
+function createLocalCliServerEntry(
+  cliArgs: string[],
+  env: Record<string, string>,
+  additionalProps: Record<string, unknown> = {}
+): object {
+  return {
+    command: 'node',
+    args: [resolveLocalCliEntry(), ...cliArgs],
+    env,
+    ...additionalProps,
+  };
+}
+
+/**
+ * Generate platform-specific MCP server entry for THIRD-PARTY packages
  * - Windows: uses 'cmd /c npx' directly
  * - Unix: uses 'npx' directly (simple, reliable)
  */
@@ -54,16 +73,16 @@ export function generateMCPConfig(options: InitOptions): object {
 
   // Ruflo MCP server (core) — the registration KEY is intentionally
   // `claude-flow` (not `ruflo`) because #2206 established that all ~166
-  // plugin tool references use `mcp__claude-flow__*`. The invoked binary
-  // is `ruflo@latest` (the post-rename wrapper) — only the registration
-  // name stays legacy so plugin tool resolution keeps working.
+  // plugin tool references use `mcp__claude-flow__*`. Only the registration
+  // name stays legacy so plugin tool resolution keeps working; the invoked
+  // binary is this build's own `bin/cli.js` (see resolveLocalCliEntry).
   // #2612 (duplicate `claude-flow` + `ruflo` registrations after users
   // followed pre-rename setup docs) is healed by `ruflo doctor`, which
   // detects the duplicate and instructs the operator to remove the
   // extra `ruflo`-keyed entry — NOT by flipping the canonical key here.
   if (config.claudeFlow) {
-    mcpServers['claude-flow'] = createMCPServerEntry(
-      ['ruflo@latest', 'mcp', 'start'],
+    mcpServers['claude-flow'] = createLocalCliServerEntry(
+      ['mcp', 'start'],
       {
         ...npmEnv,
         CLAUDE_FLOW_MODE: 'v3',
@@ -112,11 +131,15 @@ export function generateMCPCommands(options: InitOptions): string[] {
   const commands: string[] = [];
   const config = options.mcp;
 
+  // #2206: registration name must be `claude-flow` to match mcp__claude-flow__*
+  // plugin tool references. The command is platform-independent because it is
+  // a real `node` invocation of this build's own entry point rather than an
+  // npx shim — see resolveLocalCliEntry for why it is not `ruflo@latest`.
+  if (config.claudeFlow) {
+    commands.push(`claude mcp add claude-flow -- node ${resolveLocalCliEntry()} mcp start`);
+  }
+
   if (isWindows()) {
-    if (config.claudeFlow) {
-      // #2206: registration name must be `claude-flow` to match mcp__claude-flow__* plugin tool references
-      commands.push('claude mcp add claude-flow -- cmd /c npx -y ruflo@latest mcp start');
-    }
     if (config.ruvSwarm) {
       commands.push('claude mcp add ruv-swarm -- cmd /c npx -y ruv-swarm mcp start');
     }
@@ -124,10 +147,6 @@ export function generateMCPCommands(options: InitOptions): string[] {
       commands.push('claude mcp add flow-nexus -- cmd /c npx -y flow-nexus@latest mcp start');
     }
   } else {
-    if (config.claudeFlow) {
-      // #2206: registration name must be `claude-flow` to match mcp__claude-flow__* plugin tool references
-      commands.push("claude mcp add claude-flow -- npx -y ruflo@latest mcp start");
-    }
     if (config.ruvSwarm) {
       commands.push("claude mcp add ruv-swarm -- npx -y ruv-swarm mcp start");
     }

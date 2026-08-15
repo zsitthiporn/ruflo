@@ -27,11 +27,18 @@ export function generateSettings(options: InitOptions): object {
     settings.statusLine = generateStatusLineConfig(options);
   }
 
-  // Add permissions
+  // Add permissions.
+  //
+  // FORK NOTE: `Bash(npx @claude-flow*)` and `Bash(npx claude-flow*)` used to
+  // be pre-approved here. Paired with the generated CLAUDE.md — which told
+  // agents to run `npx @claude-flow/cli@latest …` — that allowlist let a
+  // freshly initialised workspace execute code fetched from the public npm
+  // registry with no permission prompt, i.e. upstream's build rather than the
+  // one that generated the workspace. Both lines are gone; this fork is
+  // invoked by local path (`node <path>/bin/cli.js`), which `Bash(node …)`
+  // already prompts for normally.
   settings.permissions = {
     allow: [
-      'Bash(npx @claude-flow*)',
-      'Bash(npx claude-flow*)',
       'Bash(node .claude/*)',
       'mcp__claude-flow__*',
     ],

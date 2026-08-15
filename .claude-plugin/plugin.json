@@ -50,8 +50,8 @@
   },
   "mcpServers": {
     "claude-flow": {
-      "command": "npx",
-      "args": ["claude-flow@alpha", "mcp", "start"],
+      "command": "ruflo",
+      "args": ["mcp", "start"],
       "description": "Core Claude Flow MCP server for swarm coordination, agent management, and task orchestration (40+ tools)",
       "optional": false
     },

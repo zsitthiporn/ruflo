@@ -22,9 +22,10 @@ import { loadSessions } from './_sessions.mjs';
 // Cold-cache wall-time drops from ~25s to ~2s. JSON backend instead of
 // SQLite/HNSW; semantic search degrades to substring (fine here — budget
 // only does list/store/retrieve, no search). See cli-core/MIGRATION.md.
-const CLI_PKG = process.env.CLI_CORE === '1'
-  ? '@claude-flow/cli-core@alpha'
-  : '@claude-flow/cli@latest';
+// The leading package spec is vestigial: spawnNpxSync drops it and resolves
+  // this fork's CLI locally (RUFLO_CLI_ENTRY, else the `ruflo` binary). Kept as a
+  // placeholder so the existing argv shape at call sites does not churn.
+  const CLI_PKG = 'ruflo-local';
 
 const NS = process.env.BUDGET_NAMESPACE || 'cost-tracking';
 const KEY = 'budget-config';

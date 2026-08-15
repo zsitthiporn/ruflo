@@ -8,6 +8,7 @@
 
 import type { Command, CommandResult } from '../types.js';
 import { output } from '../output.js';
+import { localCli } from '../init/types.js';
 import { hasConsent, recordConsent, revokeConsent } from '../funnel/index.js';
 import { installProxy, uninstallProxy } from '../proxy/install.js';
 import {
@@ -27,8 +28,22 @@ import { removeInjectedToken, startTokenRefreshPump } from '../proxy/token-bridg
 /** Pinned and reviewed; later upgrades remain explicit commands. */
 export const DEFAULT_PROXY_RELEASE = '0.4.0';
 
-const PROXY_COMMAND = 'npx ruflo@latest proxy';
-const AUTH_COMMAND = 'npx ruflo@latest auth';
+// These are guidance strings printed to the operator, and they are evaluated
+// at module load. localCli() throws when it cannot find this build's own
+// bin/cli.js — correct when generating a config file that would otherwise
+// silently point at the registry, but wrong here: it would take the whole CLI
+// down at import time over a cosmetic string. Fall back to the bare binary
+// name, which is still a local invocation and never a registry fetch.
+const CLI_INVOCATION = ((): string => {
+  try {
+    return localCli();
+  } catch {
+    return 'ruflo';
+  }
+})();
+
+const PROXY_COMMAND = `${CLI_INVOCATION} proxy`;
+const AUTH_COMMAND = `${CLI_INVOCATION} auth`;
 
 /**
  * Human-oriented next steps for `ruflo proxy` and `ruflo proxy status`.

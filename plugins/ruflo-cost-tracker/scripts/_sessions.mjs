@@ -16,9 +16,10 @@
 
 import { spawnNpxSync } from './_npx.mjs';
 
-const CLI_PKG = process.env.CLI_CORE === '1'
-  ? '@claude-flow/cli-core@alpha'
-  : '@claude-flow/cli@latest';
+// The leading package spec is vestigial: spawnNpxSync drops it and resolves
+  // this fork's CLI locally (RUFLO_CLI_ENTRY, else the `ruflo` binary). Kept as a
+  // placeholder so the existing argv shape at call sites does not churn.
+  const CLI_PKG = 'ruflo-local';
 
 export function memoryListAllKeys(namespace) {
   const r = spawnNpxSync([

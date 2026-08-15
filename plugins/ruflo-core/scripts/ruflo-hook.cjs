@@ -26,8 +26,9 @@
  *   - session-end  (Stop) — forwarded as-is, same flags as before.
  *
  * Shared behaviour:
- *   1. Prefers a locally installed `ruflo` or `claude-flow` binary.
- *   2. Falls back to `npx --prefer-offline ruflo@latest`.
+ *   1. Uses a locally installed `ruflo` or `claude-flow` binary if present.
+ *   2. Does nothing when neither is present — there is deliberately no
+ *      `npx …@latest` fallback, which would run upstream's registry build.
  *   3. ALWAYS exits 0 — hook subcommands are best-effort telemetry; a
  *      failure must never surface an error or block a turn.
  *   4. Swallows all stdout/stderr from the invoked CLI.
@@ -131,15 +132,17 @@ function invokeCli(hookSubcommand, hookArgs, stdinData) {
     invokeHook('claude-flow', [], hookSubcommand, hookArgs, stdinData);
     return;
   }
-  // SKIP npx when RUFLO_HOOK_SKIP_NPX=1 — used by CI smokes that test the
-  // shim's *control flow* without exercising npm install network paths.
-  // Without the skip, npx can take 30+s on a cold runner, exceeding a
-  // smoke's timeout and producing a spurious failure even though the shim
-  // itself works correctly. The bash version doesn't hit this because it
-  // backgrounded the work.
-  if (process.env.RUFLO_HOOK_SKIP_NPX !== '1') {
-    invokeHook('npx', ['--prefer-offline', '--yes', 'ruflo@latest'], hookSubcommand, hookArgs, stdinData);
-  }
+  // No npx fallback. This used to end in
+  // `npx --prefer-offline --yes ruflo@<tag>`, which resolves the package
+  // published on the public npm registry — upstream's build, not this fork's.
+  // A hook is best-effort telemetry, so silently running a DIFFERENT codebase
+  // to satisfy it is a bad trade: it re-opens the registry path that
+  // docs/fork-maintenance.md closes everywhere else, on every PreToolUse.
+  // When no local binary is on PATH the hook now simply does nothing, which
+  // is the documented best-effort contract (see done()/exit 0 below).
+  //
+  // RUFLO_HOOK_SKIP_NPX is retained as a no-op so existing CI smokes that set
+  // it keep passing; there is no longer an npx path for it to skip.
 }
 
 /** Read all of stdin synchronously. Returns '' on any failure (best effort). */

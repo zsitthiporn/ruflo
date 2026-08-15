@@ -46,7 +46,7 @@ services:
       - workspace:/workspace:ro
       - claude-flow-state:/root/.claude-flow
       - worker-logs:/var/log/claude-flow
-    command: npx claude-flow@v3alpha daemon start --foreground --headless
+    command: ruflo daemon start --foreground --headless
     networks:
       - claude-flow-network
     depends_on:
@@ -73,7 +73,7 @@ services:
     volumes:
       - claude-flow-state:/root/.claude-flow
       - queue-logs:/var/log/queue-manager
-    command: npx claude-flow@v3alpha queue manager --workers ${MAX_WORKERS:-10}
+    command: ruflo queue manager --workers ${MAX_WORKERS:-10}
     networks:
       - claude-flow-network
     depends_on:

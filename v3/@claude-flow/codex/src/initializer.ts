@@ -21,7 +21,7 @@ import {
 } from './generators/skill-md.js';
 import { generateConfigToml } from './generators/config-toml.js';
 import { DEFAULT_SKILLS_BY_TEMPLATE, AGENTS_OVERRIDE_TEMPLATE, GITIGNORE_ENTRIES } from './templates/index.js';
-import { getRufloMcpAddCommand } from './mcp-config.js';
+import { getRufloMcpAddCommand, resolveLocalRufloCli } from './mcp-config.js';
 
 /**
  * Bundled skills source directory (relative to package)
@@ -782,7 +782,8 @@ ${this.skills.map(s => `- \`$${s}\` (Codex) / \`/${s}\` (Claude Code)`).join('\n
 \`\`\`bash
 # Start Ruflo's MCP server over stdio (dedicated entry point — the
 # management \`ruflo mcp start\` CLI does NOT answer JSON-RPC on stdio).
-npx -y ruflo@latest mcp start
+# Local path, not \`npx …@latest\`: the registry package is upstream's build.
+node ${resolveLocalRufloCli()} mcp start
 \`\`\`
 
 ## Swarm Orchestration

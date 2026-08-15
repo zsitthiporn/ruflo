@@ -17,6 +17,7 @@ import {
   loadSwarmAutomationConfig,
 } from './orchestrator.js';
 import { CodexWorktreeCoordinator } from '../worktrees/coordinator.js';
+import { resolveLocalRufloCli } from '../mcp-config.js';
 
 /**
  * Create the dual-mode command
@@ -244,8 +245,9 @@ function createStatusCommand(): Command {
       // Check shared memory
       const { spawn } = await import('child_process');
 
-      const proc = spawn('npx', [
-        'ruflo@latest', 'memory', 'list',
+      const proc = spawn(
+        'node', [
+        resolveLocalRufloCli(), 'memory', 'list',
         '--namespace', options.namespace
       ], { stdio: 'inherit' });
 
@@ -346,5 +348,5 @@ function printResults(result: CollaborationResult): void {
   }
 
   console.log();
-  console.log(chalk.gray('View shared memory: npx ruflo@latest memory list --namespace collaboration'));
+  console.log(chalk.gray(`View shared memory: node ${resolveLocalRufloCli()} memory list --namespace collaboration`));
 }

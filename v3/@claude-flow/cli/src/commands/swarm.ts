@@ -5,6 +5,7 @@
 
 import type { Command, CommandContext, CommandResult } from '../types.js';
 import { output } from '../output.js';
+import { localCli } from '../init/types.js';
 import { select, confirm, multiSelect } from '../prompt.js';
 import { callMCPTool, MCPClientError } from '../mcp-client.js';
 import { swarmJoinCommand } from './agntcy/swarm-join.js';
@@ -638,7 +639,7 @@ const startCommand: Command = {
       // dist-tag which now resolves to a pre-rename package. Use the current
       // `ruflo@latest` and force a fresh fetch with `-y` so npx doesn't pick
       // a stale local install.
-      output.writeln(output.dim('  The MCP server may not be running. Start it with: claude mcp add claude-flow -- npx -y ruflo@latest mcp start'));
+      output.writeln(output.dim(`  The MCP server may not be running. Start it with: claude mcp add claude-flow -- ${localCli()} mcp start`));
     }
 
     // Persist swarm state to disk so `swarm status` can read it
@@ -695,8 +696,8 @@ const statusCommand: Command = {
       output.writeln(output.warning('No active swarm'));
       output.writeln();
       output.writeln(output.dim('Start a swarm with:'));
-      output.writeln(output.dim('  npx @claude-flow/cli@latest swarm init'));
-      output.writeln(output.dim('  npx @claude-flow/cli@latest swarm start'));
+      output.writeln(output.dim(`  ${localCli()} swarm init`));
+      output.writeln(output.dim(`  ${localCli()} swarm start`));
       output.writeln();
       return { success: true, data: status };
     }

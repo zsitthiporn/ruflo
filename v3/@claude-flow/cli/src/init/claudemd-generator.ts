@@ -6,6 +6,7 @@
  * All templates use imperative rules and agent comms-first coordination.
  */
 
+import { localCli } from './types.js';
 import type { InitOptions, ClaudeMdTemplate } from './types.js';
 
 // --- Section Generators ---
@@ -127,7 +128,7 @@ function swarmConfig(options: InitOptions): string {
 - **Neural**: ${options.runtime.enableNeural ? 'Enabled' : 'Disabled'}
 
 \`\`\`bash
-npx @claude-flow/cli@latest swarm init --topology hierarchical --max-agents 8 --strategy specialized
+${localCli()} swarm init --topology hierarchical --max-agents 8 --strategy specialized
 \`\`\`
 
 ### Agent Routing
@@ -158,14 +159,14 @@ function memoryAndLearning(): string {
 
 ### Before Any Task
 \`\`\`bash
-npx @claude-flow/cli@latest memory search --query "[task keywords]" --namespace patterns
-npx @claude-flow/cli@latest hooks route --task "[task description]"
+${localCli()} memory search --query "[task keywords]" --namespace patterns
+${localCli()} hooks route --task "[task description]"
 \`\`\`
 
 ### After Success
 \`\`\`bash
-npx @claude-flow/cli@latest memory store --namespace patterns --key "[name]" --value "[what worked]"
-npx @claude-flow/cli@latest hooks post-task --task-id "[id]" --success true --store-results true
+${localCli()} memory store --namespace patterns --key "[name]" --value "[what worked]"
+${localCli()} hooks post-task --task-id "[id]" --success true --store-results true
 \`\`\`
 
 ### MCP Tools (use \`ToolSearch("keyword")\` to discover)
@@ -191,7 +192,7 @@ npx @claude-flow/cli@latest hooks post-task --task-id "[id]" --success true --st
 | \`document\` | After API changes |
 
 \`\`\`bash
-npx @claude-flow/cli@latest hooks worker dispatch --trigger audit
+${localCli()} hooks worker dispatch --trigger audit
 \`\`\``;
 }
 
@@ -212,13 +213,13 @@ function cliQuickRef(): string {
   return `## CLI Quick Reference
 
 \`\`\`bash
-npx @claude-flow/cli@latest init --wizard           # Setup
-npx @claude-flow/cli@latest swarm init --v3-mode     # Start swarm
-npx @claude-flow/cli@latest memory search --query "" # Vector search
-npx @claude-flow/cli@latest hooks route --task ""    # Route to agent
-npx @claude-flow/cli@latest doctor --fix             # Diagnostics
-npx @claude-flow/cli@latest security scan            # Security scan
-npx @claude-flow/cli@latest performance benchmark    # Benchmarks
+${localCli()} init --wizard           # Setup
+${localCli()} swarm init --v3-mode     # Start swarm
+${localCli()} memory search --query "" # Vector search
+${localCli()} hooks route --task ""    # Route to agent
+${localCli()} doctor --fix             # Diagnostics
+${localCli()} security scan            # Security scan
+${localCli()} performance benchmark    # Benchmarks
 \`\`\`
 
 26 commands, 140+ subcommands. Use \`--help\` on any command for details.`;
@@ -228,13 +229,13 @@ function setupAndBoundary(): string {
   return `## Setup
 
 \`\`\`bash
-claude mcp add claude-flow -- npx -y ruflo@latest mcp start
-npx ruflo@latest doctor --fix
+claude mcp add claude-flow -- ${localCli()} mcp start
+${localCli()} doctor --fix
 \`\`\`
 
 > The background \`daemon\` is optional. It runs interval workers that each spawn
 > a headless \`claude\` session, so it consumes tokens continuously. Start it only
-> if you want those sweeps: \`npx ruflo@latest daemon start\` (self-stops after 12h
+> if you want those sweeps: \`${localCli()} daemon start\` (self-stops after 12h
 > by default; \`--ttl 0\` to disable, \`daemon status --all\` to audit running daemons).
 
 **Agent tool** handles execution (agents, files, code, git). **MCP tools** handle coordination (swarm, memory, hooks). **CLI** is the same via Bash.`;
@@ -260,8 +261,8 @@ function securitySection(): string {
 - Always use parameterized queries (prevent injection)
 
 \`\`\`bash
-npx @claude-flow/cli@latest security scan --depth deep
-npx @claude-flow/cli@latest security audit --report
+${localCli()} security scan --depth deep
+${localCli()} security audit --report
 \`\`\`
 
 Agents: \`security-architect\` (threat modeling), \`security-auditor\` (vulnerability detection)`;
@@ -275,8 +276,8 @@ function performanceSection(): string {
 - Use HNSW/DiskANN for vector search, Int8 quantization for memory reduction
 
 \`\`\`bash
-npx @claude-flow/cli@latest performance benchmark --suite all
-npx @claude-flow/cli@latest performance profile --target "[component]"
+${localCli()} performance benchmark --suite all
+${localCli()} performance profile --target "[component]"
 \`\`\`
 
 Agents: \`performance-engineer\` (profiling), \`perf-analyzer\` (bottleneck detection)`;
@@ -295,11 +296,11 @@ function hooksRef(): string {
 | \`worker\` | Background worker dispatch |
 
 \`\`\`bash
-npx @claude-flow/cli@latest hooks pre-task --description "[task]"
-npx @claude-flow/cli@latest hooks post-task --task-id "[id]" --success true
-npx @claude-flow/cli@latest hooks session-start --session-id "[id]"
-npx @claude-flow/cli@latest hooks route --task "[task]"
-npx @claude-flow/cli@latest hooks worker dispatch --trigger audit
+${localCli()} hooks pre-task --description "[task]"
+${localCli()} hooks post-task --task-id "[id]" --success true
+${localCli()} hooks session-start --session-id "[id]"
+${localCli()} hooks route --task "[task]"
+${localCli()} hooks worker dispatch --trigger audit
 \`\`\``;
 }
 
@@ -320,10 +321,10 @@ function federationRef(): string {
 Cross-installation agent collaboration with zero-trust security.
 
 \`\`\`bash
-npx @claude-flow/cli@latest federation init
-npx @claude-flow/cli@latest federation join wss://peer:8443
-npx @claude-flow/cli@latest federation send --to peer --type task-request --message "..."
-npx @claude-flow/cli@latest federation status
+${localCli()} federation init
+${localCli()} federation join wss://peer:8443
+${localCli()} federation send --to peer --type task-request --message "..."
+${localCli()} federation status
 \`\`\`
 
 - 5-tier trust: UNTRUSTED → VERIFIED → ATTESTED → TRUSTED → PRIVILEGED

@@ -2,11 +2,62 @@
  * Shared Ruflo MCP configuration for Codex generators, migrations, and init.
  */
 
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import type { McpServerConfig } from './types.js';
 
 export const RUFLO_MCP_SERVER_NAME = 'ruflo';
-export const RUFLO_MCP_PACKAGE = 'ruflo@latest';
 export const RUFLO_MCP_STARTUP_TIMEOUT_SEC = 120;
+
+/**
+ * Absolute path to THIS checkout's Ruflo CLI entry point.
+ *
+ * FORK NOTE: this module used to export `RUFLO_MCP_PACKAGE = 'ruflo@latest'`
+ * and register the Codex-side MCP server as `npx -y ruflo@latest mcp start`.
+ * That resolves the package published on the public npm registry — upstream's
+ * build, not this tree — so every Codex session initialised here talked to a
+ * different codebase than the one that configured it. Resolution is now
+ * local-only, matching `docs/fork-maintenance.md` §3.
+ *
+ * `RUFLO_CLI_ENTRY` overrides the search for unusual layouts. The search
+ * itself covers both the monorepo (a `cli` sibling under `@claude-flow/`) and
+ * an installed tree (`node_modules/@claude-flow/cli`), and cannot assume a
+ * fixed depth because this module sits at `src/` in tests and `dist/` once
+ * built.
+ */
+export function resolveLocalRufloCli(): string {
+  const override = process.env.RUFLO_CLI_ENTRY;
+  if (override && existsSync(override)) {
+    return override.replace(/\\/g, '/');
+  }
+
+  let dir = path.dirname(fileURLToPath(import.meta.url));
+
+  for (let depth = 0; depth < 8; depth += 1) {
+    const candidates = [
+      path.join(dir, 'node_modules', '@claude-flow', 'cli', 'bin', 'cli.js'),
+      path.join(dir, '@claude-flow', 'cli', 'bin', 'cli.js'),
+      path.join(dir, 'cli', 'bin', 'cli.js'),
+    ];
+
+    for (const candidate of candidates) {
+      if (existsSync(candidate)) return candidate.replace(/\\/g, '/');
+    }
+
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+
+  // Deliberately no `npx ruflo@latest` fallback: a missing local path fails
+  // loudly here, whereas the npx form succeeds silently against the wrong
+  // codebase — the failure mode this function exists to remove.
+  throw new Error(
+    'Cannot locate @claude-flow/cli bin/cli.js from this package. Set RUFLO_CLI_ENTRY to its absolute path.'
+  );
+}
 
 export interface CodexMcpRegistration {
   name?: unknown;
@@ -48,29 +99,24 @@ export function getCodexCliInvocation(
   return { command: commandShell, prefixArgs: ['/d', '/s', '/c', 'codex'] };
 }
 
+/**
+ * The `platform` parameter is retained for call-site compatibility but no
+ * longer changes the result: the old split existed only because the `npx`
+ * shim needs a `cmd /c` wrapper on Windows. `node` is a real executable on
+ * every platform, so one shape is correct everywhere.
+ */
 export function getRufloMcpServerConfig(
-  platform: NodeJS.Platform = process.platform,
+  _platform: NodeJS.Platform = process.platform,
   toolTimeout = 120,
 ): McpServerConfig {
-  const args = ['-y', RUFLO_MCP_PACKAGE, 'mcp', 'start'];
-
-  return platform === 'win32'
-    ? {
-        name: RUFLO_MCP_SERVER_NAME,
-        command: 'cmd',
-        args: ['/c', 'npx', ...args],
-        enabled: true,
-        startupTimeout: RUFLO_MCP_STARTUP_TIMEOUT_SEC,
-        toolTimeout,
-      }
-    : {
-        name: RUFLO_MCP_SERVER_NAME,
-        command: 'npx',
-        args,
-        enabled: true,
-        startupTimeout: RUFLO_MCP_STARTUP_TIMEOUT_SEC,
-        toolTimeout,
-      };
+  return {
+    name: RUFLO_MCP_SERVER_NAME,
+    command: 'node',
+    args: [resolveLocalRufloCli(), 'mcp', 'start'],
+    enabled: true,
+    startupTimeout: RUFLO_MCP_STARTUP_TIMEOUT_SEC,
+    toolTimeout,
+  };
 }
 
 export function renderMcpServerToml(server: McpServerConfig): string[] {

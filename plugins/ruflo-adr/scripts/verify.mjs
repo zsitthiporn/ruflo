@@ -18,9 +18,15 @@ import { parseEdgeKey } from './lib/index-records.mjs';
 // ADR-100 / #1748 Issue 3 — CLI_CORE=1 routes to lite cli-core (~2s cold-cache).
 // verify only does list+retrieve across adr-patterns and adr-edges namespaces;
 // no semantic search needed. JSON backend is sufficient.
-const CLI_PKG = process.env.CLI_CORE === '1'
-  ? '@claude-flow/cli-core@alpha'
-  : '@claude-flow/cli@latest';
+// FORK NOTE: this used to name a registry package (`@claude-flow/cli@latest`)
+// and run it through `npx`, i.e. UPSTREAM's published build rather than this
+// fork's. The plugin now invokes the local CLI: RUFLO_CLI_ENTRY (absolute path
+// to this checkout's bin/cli.js) when set, otherwise the `ruflo` binary on
+// PATH. Neither resolves anything from the npm registry. See
+// docs/fork-maintenance.md §3.
+const CLI_ENTRY = process.env.RUFLO_CLI_ENTRY || null;
+const CLI_BIN = CLI_ENTRY ? process.execPath : 'ruflo';
+const CLI_PREFIX = CLI_ENTRY ? [CLI_ENTRY] : [];
 
 // #2666 point 2: must match whatever ADR_ROOT import.mjs/reindex.mjs were
 // run with — the CLI resolves `.swarm/memory.db` relative to this
@@ -28,8 +34,8 @@ const CLI_PKG = process.env.CLI_CORE === '1'
 const ROOT = process.env.ADR_ROOT || process.cwd();
 
 function memoryListJson(namespace) {
-  const r = spawnSync('npx', [
-    CLI_PKG, 'memory', 'list',
+  const r = spawnSync(CLI_BIN, [
+    ...CLI_PREFIX, 'memory', 'list',
     '--namespace', namespace, '--format', 'json',
   ], { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf-8', cwd: ROOT });
   if (r.status !== 0) return [];
@@ -38,8 +44,8 @@ function memoryListJson(namespace) {
   try { return JSON.parse(m[0]); } catch { return []; }
 }
 function memoryRetrieve(namespace, key) {
-  const r = spawnSync('npx', [
-    CLI_PKG, 'memory', 'retrieve',
+  const r = spawnSync(CLI_BIN, [
+    ...CLI_PREFIX, 'memory', 'retrieve',
     '--namespace', namespace, '--key', key,
   ], { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf-8', cwd: ROOT });
   if (r.status !== 0) return null;

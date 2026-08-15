@@ -2,12 +2,12 @@
   "manifest": {
     "version": "3.35.0",
     "files": {
-      "auto-memory-hook.mjs": "e3e1033b24704992ddef6b31c7fa9dd7fcd9e1af7935dd77ef73402b916b31e6",
+      "auto-memory-hook.mjs": "ab06dcec01fb40266e7d4eeda391c780ec68e77157c3d65a539721e9b0da7b7e",
       "hook-handler.cjs": "2646eb0669661a5ebe30c26614a86d3d5ffea38b1f2002d922638c68db8883d6",
       "intelligence.cjs": "3abc5b0199886be96d9df5546148851a1c004749b113d6e0f00990ec42a97927",
       "statusline.cjs": "727544589589b292c2e01be7f23ddf3417aba8f33d8c8d987ce1b971abfc4f04"
     }
   },
-  "signature": "hGCSSM2NQn37MUfxJKsW3/30nqGwXHqEJKrftaU/Q7+UdBLkfTmSxjRJ9NZRb2HsUGh1MJXaSPSKwiDSD9sHAA==",
+  "signature": "DQfbI5OFDVFW1ieE66prZ2ZEPfFb2co5KTxAEX9gNwe6zl+Itfmd0OscCXuru0zJzz2xVf9nlfeDNGQivmTyDg==",
   "algorithm": "ed25519"
 }

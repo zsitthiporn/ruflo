@@ -6,10 +6,13 @@
 # from cold cache on every fire, and when the install crashes (e.g. an
 # arborist `Invalid Version` on npm 10.8.x) the user sees a hook error in
 # Claude Code after every turn. This shim:
-#   1. prefers an already-installed `ruflo` / `claude-flow` binary (no npx,
+#   1. uses an already-installed `ruflo` / `claude-flow` binary (no npx,
 #      no install) — the common case for plugin users;
-#   2. falls back to `npx --prefer-offline` so a populated npx cache is
-#      reused instead of a fresh registry resolve;
+#   2. does nothing when neither is present. There is deliberately no
+#      `npx …@latest` fallback: that resolves the package published on the
+#      public npm registry — upstream's build, not this fork's — so a
+#      best-effort telemetry hook would silently execute a different codebase
+#      on every PreToolUse. See docs/fork-maintenance.md;
 #   3. ALWAYS exits 0 — hook subcommands are best-effort telemetry/learning;
 #      a failure must never surface an error or block a turn.
 #
@@ -45,8 +48,6 @@ if command -v ruflo >/dev/null 2>&1; then
   run ruflo hooks "$@"
 elif command -v claude-flow >/dev/null 2>&1; then
   run claude-flow hooks "$@"
-else
-  run npx --prefer-offline --yes ruflo@latest hooks "$@"
 fi
 
 exit 0

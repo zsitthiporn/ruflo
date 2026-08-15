@@ -5,7 +5,7 @@
  */
 
 import type { ConfigTomlOptions, McpServerConfig, SkillConfig, ConfigProfile } from '../types.js';
-import { getRufloMcpServerConfig, renderMcpServerToml } from '../mcp-config.js';
+import { getRufloMcpServerConfig, renderMcpServerToml, resolveLocalRufloCli } from '../mcp-config.js';
 
 /**
  * Security configuration options
@@ -552,8 +552,8 @@ approval_policy = "${approvalPolicy}"
 sandbox_mode = "${sandboxMode}"
 
 [mcp_servers.ruflo]
-command = "npx"
-args = ["-y", "ruflo@latest", "mcp", "start"]
+command = "node"
+args = ["${resolveLocalRufloCli()}", "mcp", "start"]
 enabled = true
 startup_timeout_sec = 120
 `;
@@ -661,8 +661,8 @@ remote_compaction = true
 # =============================================================================
 
 [mcp_servers.ruflo]
-command = "npx"
-args = ["-y", "ruflo@latest", "mcp", "start"]
+command = "node"
+args = ["${resolveLocalRufloCli()}", "mcp", "start"]
 enabled = true
 tool_timeout_sec = 120
 
@@ -866,8 +866,8 @@ request_rule = false
 remote_compaction = true
 
 [mcp_servers.ruflo]
-command = "npx"
-args = ["-y", "ruflo@latest", "mcp", "start"]
+command = "node"
+args = ["${resolveLocalRufloCli()}", "mcp", "start"]
 enabled = true
 tool_timeout_sec = 120
 
@@ -947,8 +947,8 @@ request_rule = true
 remote_compaction = false
 
 [mcp_servers.ruflo]
-command = "npx"
-args = ["-y", "ruflo@latest", "mcp", "start"]
+command = "node"
+args = ["${resolveLocalRufloCli()}", "mcp", "start"]
 enabled = true
 tool_timeout_sec = 60
 

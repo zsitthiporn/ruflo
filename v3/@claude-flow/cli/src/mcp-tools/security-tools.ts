@@ -12,6 +12,7 @@
 
 import type { MCPTool, MCPToolResult } from './types.js';
 import { validateText, validateIdentifier } from './validate-input.js';
+import { localCli } from '../init/types.js';
 import { autoInstallPackage } from './auto-install.js';
 import { createRequire } from 'module';
 
@@ -122,7 +123,7 @@ async function getAIDefence(): Promise<AIDefenceInstance> {
       `This usually means npm installed the package somewhere Node's module resolver doesn't search ` +
       `(common with global installs of \`claude-flow\`). Recovery options:\n` +
       `  1. Run \`npm install --save @claude-flow/aidefence\` in your project's working directory.\n` +
-      `  2. Or run \`npx ruflo@latest mcp start\` from a directory whose node_modules contains the package.\n` +
+      `  2. Or run \`${localCli()} mcp start\` from a directory whose node_modules contains the package.\n` +
       `  3. Or restart the MCP server after the install completes.`
     );
   }

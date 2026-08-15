@@ -136,8 +136,8 @@ if [ "$INSTALL_TYPE" = "1" ] || [ "$INSTALL_TYPE" = "4" ]; then
 {
   "mcpServers": {
     "claude-flow": {
-      "command": "npx",
-      "args": ["claude-flow@alpha", "mcp", "start"],
+      "command": "ruflo",
+      "args": ["mcp", "start"],
       "description": "Core Claude Flow MCP server with 40+ orchestration tools"
     }
   }
@@ -153,8 +153,8 @@ Add to ~/.claude/settings.json:
 {
   "mcpServers": {
     "claude-flow": {
-      "command": "npx",
-      "args": ["claude-flow@alpha", "mcp", "start"]
+      "command": "ruflo",
+      "args": ["mcp", "start"]
     },
     "ruv-swarm": {
       "command": "npx",
@@ -176,7 +176,7 @@ MCP_INSTRUCTIONS
 
     if [ "$INSTALL_MCP" = "y" ]; then
         info "Installing claude-flow MCP server..."
-        npx claude-flow@alpha --version 2>/dev/null || npm install -g claude-flow@alpha
+        ruflo --version 2>/dev/null || { echo "ruflo not found on PATH — install this fork by local path (docs/fork-maintenance.md); refusing to npm install upstream"; exit 1; }
         success "Claude Flow MCP server installed"
 
         read -p "Install optional ruv-swarm MCP? (y/n) [n]: " INSTALL_RUV

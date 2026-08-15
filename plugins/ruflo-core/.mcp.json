@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "ruflo": {
-      "command": "npx",
-      "args": ["-y", "@claude-flow/cli@latest"],
+      "command": "ruflo",
+      "args": ["mcp", "start"],
       "env": {
         "CLAUDE_FLOW_MCP_TRANSPORT": "stdio"
       }

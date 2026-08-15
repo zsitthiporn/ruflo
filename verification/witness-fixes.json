@@ -201,9 +201,9 @@
     },
     {
       "id": "#1921-shim",
-      "desc": "scripts/ruflo-hook.sh \u2014 resilient invoker shipped in each plugin (.claude-plugin/, plugin/, plugins/ruflo-core/): prefers a local `ruflo`/`claude-flow` binary, else `npx --prefer-offline --yes ruflo@latest`, always `exit 0`. stdin (hook event JSON) passes through unchanged. Companion to #1921.",
+      "desc": "scripts/ruflo-hook.sh \u2014 resilient invoker shipped in each plugin (.claude-plugin/, plugin/, plugins/ruflo-core/): uses a local `ruflo`/`claude-flow` binary, otherwise does nothing, always `exit 0`. stdin (hook event JSON) passes through unchanged. The registry fallback it used to end in was removed for this fork \u2014 it resolved upstream's published build, so a best-effort telemetry hook silently executed a different codebase on every PreToolUse. Companion to #1921.",
       "file": "plugins/ruflo-core/scripts/ruflo-hook.sh",
-      "marker": "npx --prefer-offline --yes ruflo@latest hooks"
+      "marker": "command -v claude-flow >/dev/null 2>&1"
     },
     {
       "id": "#1927",

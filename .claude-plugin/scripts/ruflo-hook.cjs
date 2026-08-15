@@ -148,17 +148,16 @@ function main() {
     done();
   }
 
-  // Priority 3: npx --prefer-offline fallback (avoids cold registry resolve).
+  // No Priority 3. This used to fall back to
+  // `npx --prefer-offline --yes ruflo@<tag>`, which resolves the package
+  // published on the public npm registry — upstream's build, not this fork's.
+  // A hook is best-effort telemetry, so silently running a DIFFERENT codebase
+  // to satisfy it is a bad trade: it re-opens the registry path that
+  // docs/fork-maintenance.md closes everywhere else, on every PreToolUse.
+  // With no local binary on PATH the hook now does nothing and exits 0.
   //
-  // SKIP this when RUFLO_HOOK_SKIP_NPX=1 — used by CI smokes that test
-  // the shim's *control flow* without exercising npm install network paths.
-  // Without the skip, npx can take 30+s on a cold runner (no warm cache,
-  // no offline tarball), exceeding the smoke's 15s timeout and producing
-  // a spurious failure even though the shim itself works correctly.
-  // The bash version doesn't hit this because it backgrounded the work.
-  if (process.env.RUFLO_HOOK_SKIP_NPX !== '1') {
-    invokeHook('npx', ['--prefer-offline', '--yes', 'ruflo@latest'], hookArgs, stdinData);
-  }
+  // RUFLO_HOOK_SKIP_NPX is retained as a no-op so existing CI smokes that set
+  // it keep passing; there is no longer an npx path for it to skip.
 
   done();
 }

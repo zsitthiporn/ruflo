@@ -43,7 +43,8 @@
 import { spawnSync } from 'node:child_process';
 import { findAdrs, parseAdr } from './lib/parse-adrs.mjs';
 import {
-  CLI_PKG,
+  CLI_BIN,
+  CLI_PREFIX,
   adrRecordKey,
   adrRecordValue,
   edgeKey,
@@ -69,8 +70,8 @@ const fmt = process.env.REINDEX_FORMAT || 'markdown';
 const NAMESPACES = ['adr-patterns', 'adr-edges'];
 
 function purgeNamespace(namespace) {
-  const r = spawnSync('npx', [
-    CLI_PKG, 'memory', 'purge',
+  const r = spawnSync(CLI_BIN, [
+    ...CLI_PREFIX, 'memory', 'purge',
     `--namespace=${namespace}`,
     '--force',
   ], { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf-8', cwd: ROOT });
@@ -84,7 +85,7 @@ function memoryStore(namespace, key, value) {
   // Same argv-encoding note as import.mjs: `--flag=value` avoids npm's
   // non-ASCII-leading-dash argv rejection on em-dash titles (#2474 Bug 1).
   const r = spawnSync(
-    'npx',
+    CLI_BIN,
     memoryStoreArgs(namespace, key, value),
     { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf-8', cwd: ROOT },
   );
@@ -93,8 +94,8 @@ function memoryStore(namespace, key, value) {
 }
 
 function memoryListCount(namespace) {
-  const r = spawnSync('npx', [
-    CLI_PKG, 'memory', 'list',
+  const r = spawnSync(CLI_BIN, [
+    ...CLI_PREFIX, 'memory', 'list',
     '--namespace', namespace, '--format', 'json',
   ], { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf-8', cwd: ROOT });
   if (r.status !== 0) return null;

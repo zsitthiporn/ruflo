@@ -9,8 +9,6 @@
   },
   "permissions": {
     "allow": [
-      "Bash(npx @claude-flow*)",
-      "Bash(npx claude-flow*)",
       "Bash(node .claude/*)",
       "Bash(npm run:*)",
       "Bash(npm test:*)",
@@ -30,7 +28,6 @@
       "Bash(which:*)",
       "Bash(pwd)",
       "Bash(ls:*)",
-      "Bash(npx:*)",
       "mcp__claude-flow__*",
       "mcp__ruv-swarm__*",
       "mcp__flow-nexus__*"
@@ -266,17 +263,6 @@
   "statusLine": {
     "type": "command",
     "command": "sh -c 'exec node \"${CLAUDE_PROJECT_DIR:-.}/.claude/helpers/statusline.cjs\"'"
-  },
-  "mcpServers": {
-    "claude-flow": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "ruflo@latest",
-        "mcp",
-        "start"
-      ]
-    }
   },
   "enabledMcpjsonServers": [
     "claude-flow"

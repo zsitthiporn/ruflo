@@ -71,12 +71,18 @@ describe('#2370 — swarm.ts MCP-down hint references the current package', () =
     expect(swarmCode).not.toMatch(/claude-flow@v3alpha/);
   });
 
-  it('points users at `ruflo@latest` with the `-y` flag (forces fresh fetch)', () => {
-    expect(swarmSrc).toMatch(/npx -y ruflo@latest/);
+  // Both assertions below used to require `npx -y ruflo@latest`. That form
+  // resolves the package published on the npm registry — upstream's build, not
+  // this fork's — so the printed guidance told operators to register a
+  // different codebase than the one printing it. The `--` separator and the
+  // `claude-flow` registration key are the parts of #2369 that still hold.
+  it('points users at this build, not the registry package', () => {
+    expect(swarmSrc).toMatch(/\$\{localCli\(\)\}/);
+    expect(swarmCode).not.toMatch(/npx -y ruflo@latest/);
   });
 
-  it('uses the `--` separator before the npx invocation (avoids claude-mcp flag ambiguity)', () => {
-    expect(swarmSrc).toMatch(/claude mcp add claude-flow -- npx -y ruflo@latest/);
+  it('uses the `--` separator before the invocation (avoids claude-mcp flag ambiguity)', () => {
+    expect(swarmSrc).toMatch(/claude mcp add claude-flow -- /);
   });
 });
 
@@ -91,11 +97,15 @@ describe('#2371 — ContainerWorkerPool spawns workers with the current package'
     expect(poolCode).not.toMatch(/claude-flow@v3alpha/);
   });
 
-  it('spawns workers via `ruflo@latest` with `-y` so npx never falls back to a stale local install', () => {
-    // The argv array must contain the three tokens in order. Match the
-    // structure rather than the exact whitespace so trivial reformatting
-    // doesn't break the test.
-    expect(poolSrc).toMatch(/['"]npx['"]\s*,\s*['"]-y['"]\s*,\s*['"]ruflo@latest['"]/);
+  // Was: spawn workers via `npx -y ruflo@latest`. Inside a container that
+  // fetches upstream's published build from the registry on every cold start,
+  // so the worker ran different code from the CLI that dispatched it. The
+  // command now names the binary already present in the image, with
+  // RUFLO_CONTAINER_CLI as the override, and touches the network for nothing.
+  it('spawns workers via the in-image binary, never a registry resolve', () => {
+    expect(poolCode).not.toMatch(/npx/);
+    expect(poolCode).not.toMatch(/ruflo@latest/);
+    expect(poolSrc).toMatch(/RUFLO_CONTAINER_CLI/);
   });
 });
 

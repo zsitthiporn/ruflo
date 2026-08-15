@@ -52,22 +52,29 @@ describe('#2206 — mcp-generator server key', () => {
     expect(config.mcpServers).not.toHaveProperty('ruflo');
   });
 
-  it('still invokes ruflo@latest mcp start as the command args', () => {
+  // This used to assert `ruflo@latest` in the args. That form resolves the
+  // package published on the npm registry — upstream's build, not this fork's
+  // — so an initialised workspace talked to a different codebase than the one
+  // that initialised it. The registration key invariant (#2206) is unchanged;
+  // only the invoked binary moved to this build's own entry point.
+  it('invokes this build\'s own bin/cli.js, never the registry package', () => {
     const config = generateMCPConfig(makeMCPOptions()) as { mcpServers: Record<string, unknown> };
     const entry = config.mcpServers['claude-flow'] as { command: string; args: string[] };
-    expect(entry.args).toContain('ruflo@latest');
-    expect(entry.args).toContain('mcp');
-    expect(entry.args).toContain('start');
+    expect(entry.command).toBe('node');
+    expect(entry.args[0]).toMatch(/@claude-flow\/cli\/bin\/cli\.js$/);
+    expect(entry.args.slice(1)).toEqual(['mcp', 'start']);
+    expect(JSON.stringify(entry)).not.toMatch(/npx|@latest/);
   });
 
   it('generateMCPCommands uses claude-flow as the registration name', () => {
     const cmds = generateMCPCommands(makeMCPOptions());
     expect(cmds.length).toBeGreaterThan(0);
     // Every command that adds the main server must use 'claude-flow', not 'ruflo'
-    const mainCmd = cmds.find(c => c.includes('ruflo@latest'));
+    const mainCmd = cmds.find(c => /bin\/cli\.js/.test(c));
     expect(mainCmd).toBeDefined();
-    expect(mainCmd).toMatch(/claude mcp add claude-flow/);
+    expect(mainCmd).toMatch(/claude mcp add claude-flow -- node /);
     expect(mainCmd).not.toMatch(/claude mcp add ruflo\b/);
+    expect(mainCmd).not.toMatch(/npx|@latest/);
   });
 });
 

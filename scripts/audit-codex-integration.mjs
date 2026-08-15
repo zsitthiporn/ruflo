@@ -105,13 +105,19 @@ check(/version: "\$\{version\}"/.test(skillGen) && /author: \$\{author\}/.test(s
 section('config.toml generator MCP default:');
 const cfgGen = read('v3/@claude-flow/codex/src/generators/config-toml.ts');
 const mcpConfig = read('v3/@claude-flow/codex/src/mcp-config.ts');
+// The invariant flipped when the fork stopped resolving itself from the npm
+// registry: the default registration must now run THIS checkout's own
+// bin/cli.js under `node`, and must contain no npx / @latest form at all —
+// that form resolves upstream's published build instead of this tree.
+const mcpConfigBody = mcpConfig.replace(/\/\*\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 check(/getRufloMcpServerConfig/.test(cfgGen)
     && /RUFLO_MCP_SERVER_NAME\s*=\s*'ruflo'/.test(mcpConfig)
-    && /RUFLO_MCP_PACKAGE\s*=\s*'ruflo@latest'/.test(mcpConfig)
-    && /args:\s*\['\/c',\s*'npx',\s*\.\.\.args\]/.test(mcpConfig)
+    && /command:\s*'node'/.test(mcpConfig)
+    && /args:\s*\[resolveLocalRufloCli\(\),\s*'mcp',\s*'start'\]/.test(mcpConfig)
+    && !/npx|@latest/.test(mcpConfigBody)
     && /RUFLO_MCP_STARTUP_TIMEOUT_SEC\s*=\s*120/.test(mcpConfig),
-  `default MCP server is Windows-safe \`ruflo@latest mcp start\` with 120s startup timeout`,
-  `default MCP server must use the shared platform-aware Ruflo definition (cmd /c npx on Windows)`);
+  `default MCP server runs this checkout's own bin/cli.js under node, 120s startup timeout, no registry resolve`,
+  `default MCP server must use the shared local-path Ruflo definition (node <bin/cli.js>), never npx …@latest`);
 
 console.log('\n' + '─'.repeat(48));
 if (failures > 0) {

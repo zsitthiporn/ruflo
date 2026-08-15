@@ -5,7 +5,13 @@
 
 import { basename } from 'node:path';
 
-export const CLI_PKG = '@claude-flow/cli@latest';
+// FORK NOTE: was `@claude-flow/cli@latest` run through `npx` — UPSTREAM's
+// published build, not this fork's. Resolution is local now: RUFLO_CLI_ENTRY
+// (absolute path to this checkout's bin/cli.js) when set, otherwise the
+// `ruflo` binary on PATH. Neither reaches the npm registry.
+const CLI_ENTRY = process.env.RUFLO_CLI_ENTRY || null;
+export const CLI_BIN = CLI_ENTRY ? process.execPath : 'ruflo';
+export const CLI_PREFIX = CLI_ENTRY ? [CLI_ENTRY] : [];
 
 export function adrRecordKey(adr) {
   return `${adr.id}::${basename(adr.file, '.md')}`;
@@ -50,7 +56,7 @@ export function uniqueEdges(edges) {
 export function memoryStoreArgs(namespace, key, value) {
   const valueStr = typeof value === 'string' ? value : JSON.stringify(value);
   return [
-    CLI_PKG, 'memory', 'store',
+    ...CLI_PREFIX, 'memory', 'store',
     `--namespace=${namespace}`,
     `--key=${key}`,
     '--upsert',

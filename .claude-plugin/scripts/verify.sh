@@ -69,8 +69,8 @@ fi
 
 # Check MCP packages
 info "Checking MCP packages..."
-if npx claude-flow@alpha --version &> /dev/null; then
-    VERSION=$(npx claude-flow@alpha --version 2>/dev/null || echo "unknown")
+if ruflo --version &> /dev/null; then
+    VERSION=$(ruflo --version 2>/dev/null || echo "unknown")
     success "claude-flow MCP: $VERSION"
 else
     warning "claude-flow MCP not installed"

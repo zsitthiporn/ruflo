@@ -638,11 +638,20 @@ export class ContainerWorkerPool extends EventEmitter {
    * package, and (b) omitted `-y`, so npx could silently fall back to a
    * locally-installed stale `claude-flow` without fetching the published
    * version. Workers were running pre-autopilot / pre-browser builds.
-   * Use the current `ruflo@latest` and force a fresh resolution with `-y`.
+   * FORK NOTE (supersedes the paragraph above): the fix for #2371 was
+   * `npx -y ruflo@latest`, which resolves the package published on the npm
+   * registry — upstream's build, not this fork's. A container worker would
+   * therefore run different code from the CLI that dispatched it, and fetch it
+   * over the network on every cold start. The command now invokes the `ruflo`
+   * binary already present in the image; `RUFLO_CONTAINER_CLI` overrides it
+   * (e.g. `node /opt/ruflo/bin/cli.js` for an image that mounts the fork
+   * rather than installing it). Which build the image contains is the image's
+   * responsibility — see the guard at the top of docker/Dockerfile.
    */
   private buildWorkerCommand(options: ContainerExecutionOptions): string[] {
+    const cli = (process.env.RUFLO_CONTAINER_CLI || 'ruflo').split(' ').filter(Boolean);
     return [
-      'npx', '-y', 'ruflo@latest',
+      ...cli,
       'daemon', 'trigger',
       '-w', options.workerType,
       '--headless',

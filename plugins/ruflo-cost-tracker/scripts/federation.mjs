@@ -21,9 +21,10 @@ import { spawnNpxSync } from './_npx.mjs';
 
 // ADR-100 / #1748 Issue 3 — CLI_CORE=1 routes to lite cli-core (~2s cold-cache).
 // Federation aggregation is list+retrieve only on the federation-spend namespace.
-const CLI_PKG = process.env.CLI_CORE === '1'
-  ? '@claude-flow/cli-core@alpha'
-  : '@claude-flow/cli@latest';
+// The leading package spec is vestigial: spawnNpxSync drops it and resolves
+  // this fork's CLI locally (RUFLO_CLI_ENTRY, else the `ruflo` binary). Kept as a
+  // placeholder so the existing argv shape at call sites does not churn.
+  const CLI_PKG = 'ruflo-local';
 
 const NS = process.env.FED_NAMESPACE || 'federation-spend';
 

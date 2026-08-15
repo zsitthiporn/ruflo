@@ -50,6 +50,47 @@ function formatPriority(priority: string): string {
   }
 }
 
+/**
+ * FORK NOTE — the registry is not this fork's upstream.
+ *
+ * `update all` compares the locally installed `@claude-flow/*` versions
+ * against whatever is published on registry.npmjs.org under the same names,
+ * then runs `npm install` in the current working directory. Those names are
+ * published by upstream, so on this fork the command reads as "replace the
+ * code you are running with someone else's newer build" — precisely the
+ * substitution the `workspace:*` migration was carried out to prevent
+ * (3 active substitutions were found in a green build; see
+ * docs/fork-maintenance.md). `update check` is the same query without the
+ * install, and its own output points the operator at `update all`.
+ *
+ * Both are therefore refused unless the operator opts in explicitly. They are
+ * left reachable rather than deleted because comparing against the registry
+ * is exactly what you want when auditing how far this fork has diverged.
+ */
+const REGISTRY_UPDATE_OPT_IN = 'RUFLO_ALLOW_REGISTRY_UPDATE';
+
+function registryUpdateRefused(action: string): CommandResult | null {
+  if (/^(1|true|on|yes)$/i.test(String(process.env[REGISTRY_UPDATE_OPT_IN] || ''))) {
+    return null;
+  }
+
+  output.printError(`Refusing to ${action}: this fork is not consumed from the npm registry.`);
+  output.writeln();
+  output.writeln(
+    `  The ${output.bold('@claude-flow/*')} names on registry.npmjs.org are published by upstream.`
+  );
+  output.writeln(
+    '  Installing them would overwrite this fork\'s own build with a different codebase.'
+  );
+  output.writeln();
+  output.writeln(`  To query the registry anyway (audit / divergence check):`);
+  output.writeln(`    ${output.dim(`${REGISTRY_UPDATE_OPT_IN}=1 <command>`)}`);
+  output.writeln();
+  output.writeln(`  To update this fork, pull and rebuild — see docs/fork-maintenance.md.`);
+
+  return { success: false };
+}
+
 // Subcommand: check
 const checkCommand: Command = {
   name: 'check',
@@ -60,6 +101,9 @@ const checkCommand: Command = {
   ],
   async action(ctx: CommandContext): Promise<CommandResult> {
     const { flags } = ctx;
+
+    const refused = registryUpdateRefused('query the npm registry for updates');
+    if (refused) return refused;
 
     if (flags.force) {
       process.env.CLAUDE_FLOW_FORCE_UPDATE = 'true';
@@ -140,6 +184,10 @@ const allCommand: Command = {
   ],
   async action(ctx: CommandContext): Promise<CommandResult> {
     const { flags } = ctx;
+
+    const refused = registryUpdateRefused('install packages from the npm registry');
+    if (refused) return refused;
+
     process.env.CLAUDE_FLOW_FORCE_UPDATE = 'true';
 
     try {
@@ -318,8 +366,8 @@ const updateCommand: Command = {
     output.writeln();
     output.writeln('Subcommands:');
     output.printList([
-      `${output.highlight('check')}       - Check for available updates`,
-      `${output.highlight('all')}         - Update all packages`,
+      `${output.highlight('check')}       - Check for available updates (refused by default — see below)`,
+      `${output.highlight('all')}         - Update all packages (refused by default — see below)`,
       `${output.highlight('history')}     - View update history`,
       `${output.highlight('rollback')}    - Rollback last update`,
       `${output.highlight('clear-cache')} - Clear update check cache`,
@@ -327,8 +375,9 @@ const updateCommand: Command = {
     output.writeln();
     output.writeln('Environment Variables:');
     output.printList([
+      `${output.dim(`${REGISTRY_UPDATE_OPT_IN}=1`)} - Allow 'check'/'all' to contact registry.npmjs.org. Off by default: the @claude-flow/* names there are upstream's, so installing them replaces this fork's build with a different codebase. Update this fork by pulling and rebuilding instead — see docs/fork-maintenance.md`,
       `${output.dim('CLAUDE_FLOW_AUTO_UPDATE=true')}  - Enable the silent startup auto-update check (opt-in; off by default in this fork — see docs/fork-maintenance.md)`,
-      `${output.dim('CLAUDE_FLOW_FORCE_UPDATE=true')} - Force update check (ignores rate limit; also applies to 'update check'/'update all' below, which work regardless of CLAUDE_FLOW_AUTO_UPDATE)`,
+      `${output.dim('CLAUDE_FLOW_FORCE_UPDATE=true')} - Force update check (ignores rate limit; applies once ${REGISTRY_UPDATE_OPT_IN} has been set)`,
     ]);
     output.writeln();
     output.writeln('Run "claude-flow update <subcommand> --help" for subcommand help');

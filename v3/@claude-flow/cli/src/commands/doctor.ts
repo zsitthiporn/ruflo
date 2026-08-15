@@ -13,6 +13,7 @@ import { fileURLToPath } from 'url';
 import { createHash } from 'crypto';
 import { execSync, exec } from 'child_process';
 import { promisify } from 'util';
+import { localCli } from '../init/types.js';
 import { decodeKey, isEncryptionEnabled } from '../encryption/vault.js';
 import { isEncryptedBlob } from '../encryption/vault.js';
 import {
@@ -139,7 +140,7 @@ async function checkConfigFile(): Promise<HealthCheck> {
 
 // Check daemon status
 /**
- * #2448 / #2677 — Detect runaway `npx @claude-flow/cli@latest` commands
+ * #2448 / #2677 — Detect runaway `${localCli()}` commands
  * left over in `.claude/settings.json` from pre-#2337 installs.
  *
  * These fire on every Claude Code event (statusLine refires every few hundred
@@ -216,8 +217,8 @@ async function checkStaleSettingsNpx(): Promise<HealthCheck> {
   return {
     name: 'Stale npx@latest in settings (#2448)',
     status: 'fail',
-    message: `CRITICAL — runaway \`npx @claude-flow/cli@latest\` commands detected: ${summary}`,
-    fix: 'Re-run `npx ruflo init` to migrate (the v3.13.3+ init migrator regenerates these to local-helper form). On macOS this prevents the process-storm / kernel-panic class reported in #2448.',
+    message: `CRITICAL — runaway \`${localCli()}\` commands detected: ${summary}`,
+    fix: `Re-run \`${localCli()} init\` to migrate (the v3.13.3+ init migrator regenerates these to local-helper form). On macOS this prevents the process-storm / kernel-panic class reported in #2448.`,
   };
 }
 
@@ -826,7 +827,7 @@ async function checkLearningBridge(): Promise<HealthCheck> {
     return {
       name: 'Learning Bridge',
       status: 'pass',
-      message: 'auto-memory hook not installed (run: npx ruflo@latest init)',
+      message: `auto-memory hook not installed (run: ${localCli()} init)`,
     };
   }
 
@@ -1099,7 +1100,7 @@ async function checkMcpServers(): Promise<HealthCheck> {
       name: 'MCP Servers',
       status: 'warn',
       message: `Duplicate Ruflo MCP registrations found (${locations}) — Claude Code will start both tool schemas`,
-      fix: 'Remove the legacy `ruflo`-keyed MCP registration (pre-rename duplicate) and keep the canonical `claude-flow` entry: `claude mcp add claude-flow -- npx -y ruflo@latest mcp start`. The canonical key stays `claude-flow` so the ~166 `mcp__claude-flow__*` plugin tool references keep resolving (#2206).',
+      fix: `Remove the legacy \`ruflo\`-keyed MCP registration (pre-rename duplicate) and keep the canonical \`claude-flow\` entry: \`claude mcp add claude-flow -- ${localCli()} mcp start\`. The canonical key stays \`claude-flow\` so the ~166 \`mcp__claude-flow__*\` plugin tool references keep resolving (#2206).`,
     };
   }
 
@@ -1116,7 +1117,7 @@ async function checkMcpServers(): Promise<HealthCheck> {
       name: 'MCP Servers',
       status: 'warn',
       message: `${totalServersSeen} servers (ruflo not found)`,
-      fix: 'claude mcp add claude-flow -- npx -y ruflo@latest mcp start',
+      fix: `claude mcp add claude-flow -- ${localCli()} mcp start`,
     };
   }
 
@@ -1124,7 +1125,7 @@ async function checkMcpServers(): Promise<HealthCheck> {
     name: 'MCP Servers',
     status: 'warn',
     message: 'No MCP config found',
-    fix: 'claude mcp add ruflo -- npx -y ruflo@latest mcp start',
+    fix: `claude mcp add ruflo -- ${localCli()} mcp start`,
   };
 }
 
@@ -1298,9 +1299,12 @@ async function checkVersionFreshness(): Promise<HealthCheck> {
     );
 
     if (isOutdated) {
+      // Both arms used to send the operator back to the npm registry. This
+      // fork is consumed by local path and updated by pulling and rebuilding,
+      // so a registry "update" would replace it with upstream's build.
       const fix = isNpx
-        ? 'rm -rf ~/.npm/_npx/* && npx -y @claude-flow/cli@latest'
-        : 'npm update @claude-flow/cli';
+        ? `Running from an npx cache, which is upstream's published build. Invoke this fork directly instead: ${localCli()} — see docs/fork-maintenance.md`
+        : 'git pull && rebuild (docs/fork-maintenance.md) — do not npm update; that installs upstream';
 
       return {
         name: 'Version Freshness',

@@ -3,8 +3,63 @@
  * Configuration options for initializing Claude Code integration
  */
 
+import { existsSync, readFileSync } from 'node:fs';
 import os from 'os';
 import path from 'path';
+import { fileURLToPath } from 'node:url';
+
+/**
+ * Absolute path to THIS build's own CLI entry point.
+ *
+ * FORK NOTE: everything `init` generates — the MCP registration, the CLAUDE.md
+ * command examples, the quick-start docs — used to name `npx …@latest`, which
+ * resolves the package published on the public npm registry. That is
+ * upstream's build, not this tree, so an initialised workspace ran a different
+ * codebase than the one that initialised it (and `settings.json` pre-approved
+ * it, so it ran without a permission prompt). Generated output now names this
+ * build by absolute path, matching `docs/fork-maintenance.md` §3 — this fork
+ * publishes nothing and is consumed by local path only.
+ *
+ * The walk is required rather than a fixed `../..`: this module sits at
+ * `src/init/` when tests import the source and at `dist/src/init/` once built,
+ * so the distance to the package root is not constant.
+ */
+export function resolveLocalCliEntry(): string {
+  let dir = path.dirname(fileURLToPath(import.meta.url));
+
+  for (let depth = 0; depth < 8; depth += 1) {
+    const manifest = path.join(dir, 'package.json');
+    const entry = path.join(dir, 'bin', 'cli.js');
+
+    if (existsSync(manifest) && existsSync(entry)) {
+      try {
+        const name = JSON.parse(readFileSync(manifest, 'utf-8'))?.name;
+        if (name === '@claude-flow/cli') return entry.replace(/\\/g, '/');
+      } catch {
+        // Unreadable manifest — keep walking rather than trusting it.
+      }
+    }
+
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+
+  // Deliberately NOT falling back to `npx ruflo@latest`: a wrong local path
+  // fails loudly, whereas the npx form silently succeeds against the wrong
+  // codebase. That silent success is the bug this function exists to remove.
+  throw new Error(
+    'Cannot locate this build\'s bin/cli.js — refusing to generate output that would resolve to the public registry instead of this fork.'
+  );
+}
+
+/**
+ * `node <abs path to this build's CLI>` — the command prefix generated docs
+ * and configs should use in place of `npx …@latest`.
+ */
+export function localCli(): string {
+  return `node ${resolveLocalCliEntry()}`;
+}
 
 /**
  * Components that can be initialized

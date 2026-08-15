@@ -196,12 +196,20 @@ export class RvfaBuilder {
   }
 
   private buildRufloSection(): Buffer {
+    // Package metadata for the appliance section. This used to run
+    // `npm pack ruflo@latest --dry-run`, which queries the registry and
+    // describes UPSTREAM's published tarball — so an appliance built from this
+    // fork was stamped with someone else's package metadata. Read the local
+    // manifest instead; `RUFLO_ALLOW_REGISTRY_UPDATE=1` restores the registry
+    // query for the case where describing the published package is the point.
     let packageMeta: Record<string, unknown> | null = null;
-    try {
-      const raw = execSync('npm pack ruflo@latest --dry-run --json 2>/dev/null', { encoding: 'utf-8', timeout: 15_000 });
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) packageMeta = parsed[0];
-    } catch { /* manifest-only fallback */ }
+    if (/^(1|true|on|yes)$/i.test(String(process.env.RUFLO_ALLOW_REGISTRY_UPDATE || ''))) {
+      try {
+        const raw = execSync('npm pack ruflo@latest --dry-run --json 2>/dev/null', { encoding: 'utf-8', timeout: 15_000 });
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) packageMeta = parsed[0];
+      } catch { /* manifest-only fallback */ }
+    }
 
     return jsonBuf({
       type: 'ruflo', version: this.opts.rufloVersion,

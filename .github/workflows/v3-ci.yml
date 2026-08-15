@@ -2641,10 +2641,19 @@ jobs:
             || { echo "::error::mcp-generator writes 'ruflo' server key — breaks mcp__claude-flow__* tool naming (#2206)"; exit 1; }
           echo "ok: bare 'ruflo' server key absent"
 
-          echo "Checking command args still invoke ruflo@latest (must NOT change)..."
-          grep -q "ruflo@latest" v3/@claude-flow/cli/src/init/mcp-generator.ts \
-            || { echo "::error::mcp-generator no longer invokes ruflo@latest — command args must be preserved (#2206)"; exit 1; }
-          echo "ok: ruflo@latest invocation present"
+          # This guard was inverted. It used to require `ruflo@latest` in the
+          # generated args, i.e. it enforced resolving the package published on
+          # the npm registry — upstream's build, not this fork's. #2206 is about
+          # the server KEY (checked above), not the invoked binary. The fork
+          # invariant is the opposite: generated configs must run this build's
+          # own bin/cli.js by absolute path. See docs/fork-maintenance.md §3.
+          echo "Checking mcp-generator invokes the LOCAL cli entry, not the registry..."
+          grep -q "createLocalCliServerEntry" v3/@claude-flow/cli/src/init/mcp-generator.ts \
+            || { echo "::error::mcp-generator no longer emits a local-path MCP entry"; exit 1; }
+          ! grep -nE "^[^*/]*['\"](ruflo@latest|@claude-flow/cli@latest)['\"]" \
+            v3/@claude-flow/cli/src/init/mcp-generator.ts \
+            || { echo "::error::mcp-generator resolves the CLI from the npm registry — that is upstream's build, not this fork's"; exit 1; }
+          echo "ok: local cli entry, no registry resolve"
 
           echo "Guard 1 passed."
 

@@ -70,7 +70,7 @@ function memoryStore(namespace, key, value) {
   // #2660: pass --upsert explicitly. The importer owns stable logical keys,
   // so re-running it must refresh changed ADRs and relationships in place.
   // Do not depend on a CLI parser default for this data-integrity contract.
-  const r = spawnSync('npx', memoryStoreArgs(namespace, key, value),
+  const r = spawnSync(CLI_BIN, memoryStoreArgs(namespace, key, value),
     { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf-8', cwd: ROOT });
   if (r.status !== 0) {
     return 'error: ' + (r.stderr || r.stdout || '').slice(0, 100);
