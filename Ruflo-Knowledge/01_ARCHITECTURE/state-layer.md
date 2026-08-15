@@ -144,10 +144,15 @@ Not every `homedir()` root is a bug. `ai-job-dedup`, `global-ai-budget`,
 AI budget is the point) and all four honour `RUFLO_AI_BUDGET_DIR`. The test is
 whether the data is *workspace knowledge* or *machine-wide policy*.
 
-Still latent, not live: `helpers-generator.ts:1238` and
-`.claude/helpers/session.cjs` carry the same shape for session state. They land
-project-side in practice only because Claude Code runs hooks with the
-workspace as cwd.
+**Session** state had the identical shape (`.claude/helpers/session.cjs` plus
+both generator templates) and was closed the same way in `c3ee239b1`. It had
+been landing project-side only because Claude Code runs hooks with the
+workspace as cwd; an MCP server, a daemon, or a shell started elsewhere would
+have shared one `current.json` across projects, and the next invocation would
+have read another project's session as its own. Useful detail for anyone
+touching it: `session.cjs` is **not** one of the four signed helpers
+(`auto-memory-hook`, `hook-handler`, `intelligence`, `statusline`), so editing
+it does not require re-signing the manifest.
 
 ### No write locking — the concrete cost of a second writer
 
