@@ -5,14 +5,14 @@ tags: [architecture, state, persistence, task-store, memory, concurrency]
 domain: architecture
 service: Ruflo
 status: active
-last_reviewed: 2026-08-15
+last_reviewed: 2026-08-16
 related: [monorepo-layout, cli-and-mcp-surface]
 rag_include: true
 retrieval_priority: high
 audience: [agent, human]
 sensitivity: public
 source_of_truth: true
-aliases: [state layer, memory backend, AgentDB, task store persistence, CLAUDE_FLOW_CWD, CLAUDE_FLOW_MEMORY_PATH, .swarm, .claude-flow]
+aliases: [state layer, memory backend, AgentDB, task store persistence, CLAUDE_FLOW_CWD, CLAUDE_FLOW_MEMORY_PATH, .swarm, .claude-flow, cross-project pattern bleed, neural store scope]
 aliases_th: [state layer, ที่เก็บ task, memory path]
 task_types: [architecture-reference, debugging, concurrency]
 note_role: focused
@@ -108,6 +108,46 @@ into the raw cwd — even `--version` — which is why workers must never invoke
 the CLI from inside a repo folder (see [[../07_RUNBOOKS/wire-a-consuming-workspace]]
 and [[../07_RUNBOOKS/build-and-test-runbook]] for the scratch-dir smoke-test
 discipline this forces).
+
+### The failure mode raw-cwd resolution actually produces (#19, fixed 2026-08-16)
+
+Ignoring the pin does not usually surface as a missing file. It surfaces as
+state landing **somewhere plausible but shared**, which is far harder to
+notice. The neural pattern store is the worked example.
+
+`memory/intelligence.ts:getDataDir()` read raw `process.cwd()`, and when that
+directory had no `.claude-flow` it fell back to a single unnamespaced
+`~/.claude-flow/neural` — **one blob for every project on the machine**. Under
+MCP that fallback was not an edge case but the normal path: the server's cwd
+is not the workspace, so the probe failed on every call. Confirmed on disk
+before the fix: `<repo>/.claude-flow/neural` had never been created, while
+`~/.claude-flow/neural/patterns.json` kept growing across sessions in
+unrelated repositories. Patterns distilled from this fork's TypeScript were
+being retrieved as routing signal inside other projects, and the reverse.
+
+Three things make this class of bug worth recognising on sight:
+
+1. **It is invisible from the surface.** The SessionStart banner reports
+   `[INTELLIGENCE] Loaded N patterns` identically whether that store is
+   correctly scoped or globally shared. A rising N reads like healthy
+   learning.
+2. **An `existsSync` probe is not a substitute for the pin.** A freshly wired
+   workspace has no `.claude-flow` yet on its first run — precisely when the
+   probe is most wrong. An explicit `CLAUDE_FLOW_CWD` is an instruction, not a
+   hint; it should win before the directory exists.
+3. **A shared fallback is worse than no fallback.** The fix keeps a home-scoped
+   fallback for genuinely project-less invocations but namespaces it per
+   workspace (`neural/workspaces/<name>-<8 hex of sha256(root)>`).
+
+Not every `homedir()` root is a bug. `ai-job-dedup`, `global-ai-budget`,
+`repo-supervisor`, and `workspace-lease` are deliberately cross-repo (a global
+AI budget is the point) and all four honour `RUFLO_AI_BUDGET_DIR`. The test is
+whether the data is *workspace knowledge* or *machine-wide policy*.
+
+Still latent, not live: `helpers-generator.ts:1238` and
+`.claude/helpers/session.cjs` carry the same shape for session state. They land
+project-side in practice only because Claude Code runs hooks with the
+workspace as cwd.
 
 ### No write locking — the concrete cost of a second writer
 
