@@ -103,9 +103,14 @@ The older markers remain as defence in depth, behind those gates:
 
 - **`.claude/helpers/.LOCKED`** — predates this work; its existence
   short-circuits the project pass. Do not delete it.
-- **`~/.claude/helpers/.LOCKED`** — added 2026-08-13. Auto-refresh runs a
-  **second, global pass** over `~/.claude/helpers/` that the project-level
-  marker does not cover. That was the open gap.
+- **`~/.claude/helpers/.LOCKED`** — added 2026-08-13, and observed absent again
+  by 2026-08-15: the user periodically sweeps `~/.claude/helpers/`, taking the
+  marker with it. That is now fine — since refresh became opt-in at the source
+  default, the global marker is belt-and-braces rather than load-bearing, and
+  auto-refresh no-ops on a missing directory anyway. Recreate it only if the
+  opt-in default is ever reverted. (Historically it closed a real gap: auto-refresh
+  runs a **second, global pass** over `~/.claude/helpers/` that the project-level
+  marker does not cover.)
 - **`RUFLO_HELPERS_LOCKED=1`** — env-level equivalent, useful for one-off shells.
 
 Setting `CLAUDE_FLOW_AUTO_UPDATE=false` in consuming workspaces is now
@@ -123,16 +128,19 @@ upstream, so these are ours.
    compiled output. Both dependency trees must be installed: `npm install` at the
    repo root (npm workspaces) and `pnpm install` inside `v3/` (separate pnpm
    workspace).
-1a. **Use Node 20+ for anything that builds or tests.** This machine's default is
-   **v16.20.2**, below what the repo requires, and it fails in ways that look
-   like broken code rather than a broken environment: `fetch is not defined` in
+1a. **Use Node 20+ for anything that builds or tests — and check `node --version`
+   first, because the machine default drifts.** When this section was written the
+   default was v16.20.2 (below requirements) and it failed in ways that look like
+   broken code rather than a broken environment: `fetch is not defined` in
    scripts, and `crypto.getRandomValues is not a function` from Vite when running
    the test suite. It blocked two agents in one session, one of which concluded —
-   wrongly — that no other Node was installed.
+   wrongly — that no other Node was installed. A day later the default had been
+   switched to v24.19.0, which makes both symptoms vanish — the version-agnostic
+   lesson stands: missing-global errors indict the runtime before the code, and
+   `nvm list` before concluding a suitable version is absent.
 
-   `nvm list` shows 22.22.3, 22.13.1, and 18.19.0 available. To avoid switching
-   the machine-wide version, call the binary directly:
-   `/c/Users/sitth/AppData/Local/nvm/v22.22.3/node.exe`, or prepend that
+   Known-good pinned fallback when the default is unsuitable: call
+   `/c/Users/sitth/AppData/Local/nvm/v22.22.3/node.exe` directly, or prepend its
    directory to `PATH` for one command. Vitest then runs normally
    (`node node_modules/vitest/vitest.mjs run <file>`).
 1b. **Know the shell trap.** The documented form is `node bin/cli.js …` from the
@@ -251,7 +259,7 @@ GitHub issue #6.
 Upstream is active. Every rebase or merge can re-open the drift this document
 closes. Run through this after each one:
 
-- [ ] `.claude/helpers/.LOCKED` still present, and `~/.claude/helpers/.LOCKED` too.
+- [ ] `.claude/helpers/.LOCKED` still present. (The global `~/.claude/helpers/.LOCKED` is optional now — see §2; check it only if the opt-in refresh default was reverted.)
 - [ ] `git diff` on `.claude/helpers/**` is clean — if helpers changed, decide
       deliberately rather than accepting upstream's copies.
 - [ ] **`RUFLO_HELPERS_PUBKEY` in `src/init/helper-signing.ts` is still ours.** A

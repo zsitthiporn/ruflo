@@ -24,6 +24,31 @@
 - ALWAYS read a file before editing it
 - NEVER commit secrets, credentials, or .env files
 
+## Knowledge Vault (Ruflo-Knowledge)
+
+The canonical reusable knowledge base for this fork lives at
+[`Ruflo-Knowledge/`](Ruflo-Knowledge/) — an Obsidian vault, committed to the
+repo, modeled on the BIGO-Knowledge conventions (English-first, `aliases_th`
+for Thai lookups, one topic per file).
+
+**Always read first: [`Ruflo-Knowledge/11_AI/agent-start.md`](Ruflo-Knowledge/11_AI/agent-start.md).**
+Do not preload broad indexes; follow its route and load the smallest focused
+note. Load on demand:
+
+| Situation | Read |
+|-----------|------|
+| Understand the workspace | `Ruflo-Knowledge/SYSTEM_CONTEXT.md` |
+| Recurring or unclear workflow | `Ruflo-Knowledge/00_INDEX/task-entrypoints.md` |
+| Thai alias or ambiguous name | `Ruflo-Knowledge/00_INDEX/retrieval-keyword-index.md` |
+| Debugging a known symptom | `Ruflo-Knowledge/00_INDEX/troubleshooting-index.md` |
+| What a coordination tool actually does | `Ruflo-Knowledge/11_AI/honest-status-of-coordination-surfaces.md` |
+
+When new reusable knowledge surfaces (architecture, runbooks, confirmed
+troubleshooting, decisions), write it back to the vault per
+`Ruflo-Knowledge/12_STANDARDS/markdown-note-standard.md` and update the
+relevant index. Task state never goes into the vault; the repo is public, so
+neither do secrets.
+
 ## Capability Brain and Governed Implementation
 
 Ruflo is the coordination ledger and policy decision point. Claude Code
