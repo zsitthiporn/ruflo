@@ -53,6 +53,7 @@ Normalized keywords and aliases, including the Thai terms the user actually type
 | helper system, hook-handler.cjs, intelligence.cjs, helpers.manifest.json | [[../01_ARCHITECTURE/helper-system]] |
 | build and test runbook, npm run build, npm test | [[../07_RUNBOOKS/build-and-test-runbook]] |
 | wire a consuming workspace, npm link, install this fork elsewhere | [[../07_RUNBOOKS/wire-a-consuming-workspace]] |
+| smoke test a workspace, verify wiring, workspace isolation test, ทดสอบการเดินสาย | [[../07_RUNBOOKS/verify-a-wired-workspace]] |
 | upstream rebase, merge upstream, ruvnet upstream sync | [[../07_RUNBOOKS/upstream-rebase-runbook]] |
 | helper signing, ลายเซ็น helper, sign-helpers.mjs, Ed25519 | [[../07_RUNBOOKS/helper-signing-runbook]], [[../05_SECURITY/helper-signing-key]] |
 | publishing, npm publish, pnpm publish, dist-tag | [[../07_RUNBOOKS/publishing-runbook]] |

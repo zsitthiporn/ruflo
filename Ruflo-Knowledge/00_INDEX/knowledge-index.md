@@ -70,6 +70,7 @@ Full topic index for the Ruflo knowledge base, organized by folder. Use [[task-e
 
 - Build and test runbook: [[../07_RUNBOOKS/build-and-test-runbook]]
 - Wire a consuming workspace: [[../07_RUNBOOKS/wire-a-consuming-workspace]]
+- Verify a wired workspace (smoke prompt): [[../07_RUNBOOKS/verify-a-wired-workspace]]
 - Upstream rebase runbook: [[../07_RUNBOOKS/upstream-rebase-runbook]]
 - Helper signing runbook: [[../07_RUNBOOKS/helper-signing-runbook]]
 - Publishing runbook: [[../07_RUNBOOKS/publishing-runbook]]

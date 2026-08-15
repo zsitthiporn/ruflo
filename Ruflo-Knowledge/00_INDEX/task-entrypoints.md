@@ -54,6 +54,7 @@ Routing guide for recurring Ruflo workspace requests. Match the user's intent to
 | Work on the helper system (hook-handler.cjs, intelligence.cjs, signing) | [[../01_ARCHITECTURE/helper-system]] |
 | Build and test the repo locally | [[../07_RUNBOOKS/build-and-test-runbook]] |
 | Wire this fork into another workspace (link, install, consume) | [[../07_RUNBOOKS/wire-a-consuming-workspace]] |
+| Prove a newly wired workspace works and does not leak state | [[../07_RUNBOOKS/verify-a-wired-workspace]] |
 | Rebase or merge onto upstream `ruvnet/ruflo` | [[../07_RUNBOOKS/upstream-rebase-runbook]] |
 | Sign or rotate the helper signing key | [[../07_RUNBOOKS/helper-signing-runbook]], then [[../05_SECURITY/helper-signing-key]] |
 | Publish a package to npm | [[../07_RUNBOOKS/publishing-runbook]] |
