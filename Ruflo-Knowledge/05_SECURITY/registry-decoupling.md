@@ -1,11 +1,11 @@
 ---
 title: Registry Decoupling
-summary: Four distinct paths that let upstream registry code silently run inside the fork, all cut on 2026-08-14 — version pins, helper auto-refresh, silent auto-update/adoption, and stale npx doc examples.
+summary: Five distinct paths that let upstream registry code silently run inside the fork — version pins, helper auto-refresh, silent auto-update/adoption, stale npx doc examples (all cut 2026-08-14), and the command strings themselves across 55 files (cut 2026-08-16).
 tags: [security, registry, workspace-protocol, supply-chain, upstream-substitution]
 domain: security
 service: Ruflo
 status: active
-last_reviewed: 2026-08-15
+last_reviewed: 2026-08-16
 related: [09_DECISIONS/decision-workspace-protocol, 08_TROUBLESHOOTING/lockfile-registry-substitution, 05_SECURITY/helper-signing-key, 09_DECISIONS/decision-opt-in-registry-callbacks, 09_DECISIONS/decision-package-rename-declined]
 rag_include: true
 retrieval_priority: high
@@ -21,7 +21,9 @@ task_types: [security-audit, incident-response, dependency-management]
 
 ## Summary
 
-Four independent paths let unmodified upstream code run inside this fork instead of this fork's own source — all four were cut in commits `2f9a7aee6` and `d61f10e7d` on 2026-08-14. The most serious was intra-workspace version pins letting `pnpm` silently substitute newer registry builds for local packages: 3 **active** substitutions were found in a green build (upstream CLI `3.38.8` replacing local `3.35.0`, one of them reachable via a caret range). All were fixed by moving to `workspace:*` protocol specifiers everywhere.
+Five independent paths let unmodified upstream code run inside this fork instead of this fork's own source. Four were cut in commits `2f9a7aee6` and `d61f10e7d` on 2026-08-14; the fifth — every command string that named `npx …@latest`, 135 live references across 55 files — in `50a747bd0` on 2026-08-16. The most serious of the first four was intra-workspace version pins letting `pnpm` silently substitute newer registry builds for local packages: 3 **active** substitutions were found in a green build (upstream CLI `3.38.8` replacing local `3.35.0`, one of them reachable via a caret range), fixed by moving to `workspace:*` protocol specifiers everywhere.
+
+The common shape across all five: a mechanism that **succeeds** while running the wrong code. That is why every replacement in Path 5 fails loudly instead of degrading to `npx`.
 
 ## Key Terms
 
@@ -61,6 +63,59 @@ Roughly **207 doc examples** across the repository read `npx …@latest`, which 
 ### The re-infection vector
 
 Independently of the four paths above, the helpers-generator was found to emit `npx` spawn calls **into the hooks it generates** — meaning even after the four paths above were closed, a freshly generated hook could reintroduce an `npx …@latest` call as generated code. This was closed by deleting the `spawn` import from the generator entirely: any future reintroduction of this pattern now throws `ReferenceError` at generation time rather than silently producing a vulnerable hook.
+
+### Path 5 — the command strings themselves (second wave, 2026-08-16)
+
+The four paths above closed registry resolution at the *dependency* level and
+in repo documentation. They left it open everywhere a command was written as a
+string. A full sweep found **135 live (non-comment) references across 55
+files** — the first sweep reported far fewer because its grep output was
+truncated at the pagination limit, which is its own lesson: a truncated search
+reads exactly like a clean one.
+
+The ones that actually executed upstream code:
+
+| Site | What it did |
+| --- | --- |
+| `init/mcp-generator.ts` | wrote `npx -y ruflo@latest mcp start` into every generated `.mcp.json` |
+| `init/settings-generator.ts` | pre-approved `Bash(npx @claude-flow*)`, so the generated CLAUDE.md's own `npx …@latest` examples ran **with no permission prompt** |
+| `services/container-worker-pool.ts` | spawned every container worker via `npx -y ruflo@latest` — a network fetch of upstream's build per cold start |
+| `commands/init.ts`, `mcp-tools/browser-session-tools.ts` | 8 `execSync`/`shell` call sites |
+| `codex/` | 5 spawns, 4 `config.toml` templates, the Codex MCP registration, and the prompt injected into every dual-mode worker |
+| `hooks/official-hooks-bridge.ts` | hook commands written into a settings file, firing per tool call |
+| plugin hook shims (4 copies) + `ruflo-adr` / `ruflo-cost-tracker` / `ruflo-metaharness` scripts | `npx …@latest` fallback on every hook fire |
+| `@claude-flow/browser` `postinstall` | `npm install -g agent-browser@latest`, fired by `pnpm install` in `v3/` |
+
+Resolution is now local everywhere: a `resolveLocalCliEntry()` walk to this
+build's own `bin/cli.js` (the module sits at `src/init/` in tests and
+`dist/src/init/` once built, so a fixed relative depth is wrong), the
+`RUFLO_CLI_ENTRY` env var for plugin scripts, or the `ruflo` binary on PATH.
+**None of them fall back to `npx` on failure** — a missing local path fails
+loudly, whereas the npx form succeeds silently against the wrong codebase, and
+that silent success is the entire bug.
+
+Three paths are refused rather than rewritten, because reaching the registry is
+sometimes legitimately the point: `update check` / `update all`
+(`RUFLO_ALLOW_REGISTRY_UPDATE=1`), `scripts/install.sh` and the four
+Dockerfiles (`RUFLO_ALLOW_UPSTREAM_INSTALL=1`). `update all` deserved the
+strongest treatment: `DEFAULT_CONFIG.autoUpdate.patch` was `true` and the
+executor runs `npm install` in the current directory, so one command reinstated
+the exact substitution `workspace:*` exists to prevent.
+
+**The fork's own repo was mis-wired the whole time.** `.claude/settings.json`
+registered the MCP server as `npx -y ruflo@latest mcp start` while no
+`.mcp.json` existed at all, so `enabledMcpjsonServers` pointed at nothing —
+which is why no `mcp__claude-flow__*` tools were reachable. See
+[[../07_RUNBOOKS/wire-a-consuming-workspace]] for the correct shape.
+
+**Two CI guards had to be inverted, not just updated.** `v3-ci.yml` explicitly
+*required* `ruflo@latest` in `mcp-generator.ts` ("must NOT change", citing
+#2206), and `smoke-ruflo-hook-cjs.mjs` enforced dist-tag *parity* across the
+hook shims. Both encoded upstream's assumption that the registry is where the
+CLI comes from. #2206 is about the registration **key** (`claude-flow`), not
+the invoked binary; parity is moot when the correct number of registry
+references is zero. When a fork inverts an invariant, its guards will keep
+enforcing the old one until someone reads them.
 
 ### Package rename — considered and declined
 
