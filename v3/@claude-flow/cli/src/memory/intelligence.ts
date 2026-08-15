@@ -11,10 +11,12 @@
  * @module v3/cli/intelligence
  */
 
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { createRequire } from 'node:module';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
+import { getProjectCwd } from '../mcp-tools/types.js';
 import { resolveTrainingBackend } from '../ruvector/lora-adapter.js';
 
 // ============================================================================
@@ -22,21 +24,49 @@ import { resolveTrainingBackend } from '../ruvector/lora-adapter.js';
 // ============================================================================
 
 /**
- * Get the data directory for neural pattern persistence
- * Uses .claude-flow/neural in the current working directory,
- * falling back to home directory
+ * Get the data directory for neural pattern persistence.
+ *
+ * Learned patterns are workspace knowledge: patterns distilled from one
+ * project's code are noise — or worse, misleading routing signal — in
+ * another. This resolves to `<project>/.claude-flow/neural`.
+ *
+ * FORK NOTE (#19): this used to read raw `process.cwd()` and, when that
+ * directory had no `.claude-flow`, fall back to a single unnamespaced
+ * `~/.claude-flow/neural` shared by every project on the machine. Under MCP
+ * the server's cwd is not the workspace, so the fallback was not an edge case
+ * — it was the normal path, and every project's patterns landed in one blob.
+ * Observed directly: `<repo>/.claude-flow/neural` had never been created
+ * while `~/.claude-flow/neural/patterns.json` kept growing across sessions in
+ * unrelated repos.
+ *
+ * Two changes: resolve through `getProjectCwd()` so `CLAUDE_FLOW_CWD` governs
+ * here as it does everywhere else, and namespace the home fallback per
+ * workspace so a genuinely project-less invocation still cannot cross-
+ * contaminate. An explicit pin is treated as an instruction rather than a
+ * hint — it wins even before `.claude-flow` exists on disk, which is what a
+ * freshly-wired workspace looks like on its first run.
  */
 function getDataDir(): string {
-  const cwd = process.cwd();
-  const localDir = join(cwd, '.claude-flow', 'neural');
-  const homeDir = join(homedir(), '.claude-flow', 'neural');
+  const root = getProjectCwd();
+  const localDir = join(root, '.claude-flow', 'neural');
 
-  // Prefer local directory if .claude-flow exists
-  if (existsSync(join(cwd, '.claude-flow'))) {
+  const pinned = root !== process.cwd();
+  if (pinned || existsSync(join(root, '.claude-flow'))) {
     return localDir;
   }
 
-  return homeDir;
+  return join(homedir(), '.claude-flow', 'neural', 'workspaces', workspaceSlug(root));
+}
+
+/**
+ * Stable, readable, collision-resistant directory name for a workspace root.
+ * The basename keeps it greppable by a human; the digest keeps two projects
+ * with the same folder name apart.
+ */
+function workspaceSlug(root: string): string {
+  const digest = createHash('sha256').update(root).digest('hex').slice(0, 8);
+  const name = basename(root).replace(/[^A-Za-z0-9._-]/g, '_') || 'workspace';
+  return `${name}-${digest}`;
 }
 
 /**
