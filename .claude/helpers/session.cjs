@@ -7,23 +7,50 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');
 
 const platform = os.platform();
 const homeDir = os.homedir();
 
+// Resolve the workspace root the same way the rest of the state layer does.
+// #19 follow-up: this used to read process.cwd() directly and, when that
+// directory had no .claude-flow, fall back to ONE unnamespaced user-scope
+// sessions directory shared by every project on the machine. It happens to
+// land project-side today only because Claude Code runs hooks with the
+// workspace as cwd — any invocation that does not (an MCP server, a daemon,
+// a shell started elsewhere) silently shared session state across projects.
+function projectRoot() {
+  const pin = process.env.CLAUDE_FLOW_CWD;
+  if (pin && pin !== '/' && pin !== process.env.HOME) return pin;
+  return process.cwd();
+}
+
+function workspaceSlug(root) {
+  const digest = crypto.createHash('sha256').update(root).digest('hex').slice(0, 8);
+  const name = path.basename(root).replace(/[^A-Za-z0-9._-]/g, '_') || 'workspace';
+  return name + '-' + digest;
+}
+
 function getDataDir() {
-  const localDir = path.join(process.cwd(), '.claude-flow', 'sessions');
-  if (fs.existsSync(path.dirname(localDir))) {
+  const root = projectRoot();
+  const localDir = path.join(root, '.claude-flow', 'sessions');
+
+  // An explicit pin is an instruction, not a hint: honour it before
+  // .claude-flow exists, which is what a freshly wired workspace looks like.
+  if (root !== process.cwd() || fs.existsSync(path.join(root, '.claude-flow'))) {
     return localDir;
   }
 
+  // Project-less invocation: still user-scope, but namespaced per workspace
+  // so two projects can never share one session file.
+  const slug = workspaceSlug(root);
   switch (platform) {
     case 'win32':
-      return path.join(process.env.APPDATA || homeDir, 'claude-flow', 'sessions');
+      return path.join(process.env.APPDATA || homeDir, 'claude-flow', 'sessions', 'workspaces', slug);
     case 'darwin':
-      return path.join(homeDir, 'Library', 'Application Support', 'claude-flow', 'sessions');
+      return path.join(homeDir, 'Library', 'Application Support', 'claude-flow', 'sessions', 'workspaces', slug);
     default:
-      return path.join(homeDir, '.claude-flow', 'sessions');
+      return path.join(homeDir, '.claude-flow', 'sessions', 'workspaces', slug);
   }
 }
 
